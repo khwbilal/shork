@@ -1,0 +1,281 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Crypto Chart AI</title>
+    <script>
+      // Apply the stored theme before first paint so there is no flash.
+      try {
+        const t = localStorage.getItem("cca_theme");
+        if (t === "light" || t === "dark") document.documentElement.dataset.theme = t;
+      } catch {}
+    </script>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap"
+      rel="stylesheet"
+    />
+    <link rel="stylesheet" href="/static/app.css" />
+  </head>
+  <body>
+    <div class="shell" id="shell">
+      <!-- ─── Rail ─────────────────────────────────────────────── -->
+      <aside class="rail" aria-label="Main navigation">
+        <div class="rail-logo">
+          <div class="logo-mark" data-icon="activity"></div>
+          <div class="logo-text">
+            <strong>Chart AI</strong>
+            <span>Crypto analysis desk</span>
+          </div>
+        </div>
+        <nav class="rail-nav">
+          <a class="nav-item" href="#/desk" data-route="desk" title="Desk">
+            <span data-icon="chart"></span><span class="label">Desk</span>
+          </a>
+          <a class="nav-item" href="#/watchlist" data-route="watchlist" title="Watchlist">
+            <span data-icon="list"></span><span class="label">Watchlist</span>
+          </a>
+          <h4>Track record</h4>
+          <a class="nav-item" href="#/journal" data-route="journal" title="Journal">
+            <span data-icon="book"></span><span class="label">Journal</span>
+            <span class="count" id="navJournalCount"></span>
+          </a>
+          <a class="nav-item" href="#/signals" data-route="signals" title="Signals">
+            <span data-icon="target"></span><span class="label">Signals</span>
+            <span class="count" id="navSignalCount"></span>
+          </a>
+        </nav>
+        <div class="rail-foot">
+          <div class="provider-chip" id="providerChip" title="AI provider">
+            <span class="dot"></span>
+            <div>
+              <strong id="providerName">Checking…</strong>
+              <span id="providerModel">—</span>
+            </div>
+          </div>
+          <button class="rail-toggle" type="button" id="railToggle" aria-label="Collapse navigation" data-icon="chevronsLeft"></button>
+        </div>
+      </aside>
+      <div class="scrim" id="scrim"></div>
+
+      <!-- ─── Main ─────────────────────────────────────────────── -->
+      <div class="main">
+        <header class="topbar">
+          <button class="icon-btn menu-btn" type="button" id="menuBtn" aria-label="Open navigation" data-icon="menu"></button>
+          <h1 id="pageTitle">Desk</h1>
+          <div class="scope">
+            <button class="scope-pair" type="button" id="scopePair" title="Change pair">
+              <span id="scopeSymbol">SOLUSDT</span>
+              <span data-icon="chevronDown" data-size="sm"></span>
+            </button>
+            <select class="select" id="exchange" aria-label="Exchange">
+              <option>BINANCE</option>
+              <option>KUCOIN</option>
+              <option>BYBIT</option>
+              <option>MEXC</option>
+            </select>
+            <div class="segmented" id="timeframe" role="group" aria-label="Timeframe">
+              <button type="button" data-tf="15m">15m</button>
+              <button type="button" data-tf="1h">1h</button>
+              <button type="button" data-tf="4h">4h</button>
+              <button type="button" data-tf="1D">1D</button>
+            </div>
+          </div>
+          <div class="topbar-spacer"></div>
+          <button class="search-trigger" type="button" id="searchTrigger">
+            <span data-icon="search" data-size="sm"></span>
+            <span>Search pairs…</span>
+            <kbd>Ctrl K</kbd>
+          </button>
+          <button class="icon-btn" type="button" id="themeBtn" aria-label="Toggle theme" data-icon="sun"></button>
+        </header>
+
+        <!-- ─── Desk ─────────────────────────────────────────── -->
+        <section class="page" data-page="desk">
+          <div class="page-header">
+            <div>
+              <h2 id="deskTitle">SOLUSDT</h2>
+              <p id="deskSubtitle">Run a full analysis to score this pair.</p>
+            </div>
+            <div class="actions">
+              <button class="btn" type="button" id="journalBtn" disabled>
+                <span data-icon="bookPlus" data-size="sm"></span>Log to journal
+              </button>
+              <button class="btn primary" type="button" id="analyzeBtn">
+                <span data-icon="sparkles" data-size="sm"></span>Full analysis
+              </button>
+            </div>
+          </div>
+
+          <div class="kpi-strip" id="deskKpis" role="list"></div>
+
+          <div class="desk-grid">
+            <div class="desk-left">
+              <div class="card chart-card">
+                <div class="card-head">
+                  <h3><span data-icon="chart"></span><span id="tvLabel">BINANCE:SOLUSDT</span></h3>
+                  <div class="right"><span class="card-sub" id="dataSource"></span></div>
+                </div>
+                <div class="card-body">
+                  <div id="tv_chart"></div>
+                  <div class="levels-board" id="levelsBoard"></div>
+                </div>
+              </div>
+
+              <div class="insight-grid">
+                <div class="card">
+                  <div class="card-head">
+                    <h3><span data-icon="gauge"></span>Confluence</h3>
+                    <div class="right" id="confBias"></div>
+                  </div>
+                  <div class="card-body" id="confBody"></div>
+                </div>
+                <div class="card">
+                  <div class="card-head">
+                    <h3><span data-icon="layers"></span>Setup &amp; timeframes</h3>
+                    <div class="right" id="setupPill"></div>
+                  </div>
+                  <div class="card-body" id="setupBody"></div>
+                </div>
+                <div class="card">
+                  <div class="card-head">
+                    <h3><span data-icon="waves"></span>Whales &amp; derivatives</h3>
+                  </div>
+                  <div class="card-body" id="flowBody"></div>
+                </div>
+                <div class="card">
+                  <div class="card-head">
+                    <h3><span data-icon="droplet"></span>Liquidity &amp; order book</h3>
+                  </div>
+                  <div class="card-body" id="liqBody"></div>
+                </div>
+              </div>
+            </div>
+
+            <aside class="card chat-card" aria-label="AI analyst chat">
+              <div class="card-head">
+                <h3><span data-icon="message"></span>Analyst</h3>
+                <div class="right">
+                  <button class="link-btn" type="button" id="clearChat">Clear</button>
+                </div>
+              </div>
+              <output class="chat-log" id="messages" aria-live="polite"></output>
+              <form class="composer" id="form">
+                <div class="suggestions" id="suggestions">
+                  <button type="button">Is this a long setup?</button>
+                  <button type="button">Where is the invalidation?</button>
+                  <button type="button">What would flip the bias?</button>
+                  <button type="button">Summarise the risk</button>
+                </div>
+                <div class="input-wrap">
+                  <textarea id="input" rows="1" placeholder="Ask about SOLUSDT…"></textarea>
+                  <button class="send-btn" type="submit" id="sendBtn" aria-label="Send" data-icon="send" data-size="sm"></button>
+                </div>
+              </form>
+            </aside>
+          </div>
+        </section>
+
+        <!-- ─── Watchlist ────────────────────────────────────── -->
+        <section class="page" data-page="watchlist" hidden>
+          <div class="page-header">
+            <div>
+              <h2>Watchlist</h2>
+              <p id="wlSubtitle">Score the majors for setup quality: confluence, chop filter, book and liquidity.</p>
+            </div>
+            <div class="actions">
+              <button class="btn primary" type="button" id="watchlistBtn">
+                <span data-icon="refresh" data-size="sm"></span>Score watchlist
+              </button>
+            </div>
+          </div>
+          <div class="kpi-strip" id="wlKpis" role="list"></div>
+          <div class="card">
+            <div class="table-wrap" id="wlTable"></div>
+          </div>
+        </section>
+
+        <!-- ─── Journal ──────────────────────────────────────── -->
+        <section class="page" data-page="journal" hidden>
+          <div class="page-header">
+            <div>
+              <h2>Journal</h2>
+              <p id="jrSubtitle">Trades you logged from the desk.</p>
+            </div>
+            <div class="actions">
+              <button class="btn" type="button" id="refreshJournalBtn">
+                <span data-icon="refresh" data-size="sm"></span>Refresh
+              </button>
+            </div>
+          </div>
+          <div class="kpi-strip" id="jrKpis" role="list"></div>
+          <div class="card">
+            <div class="table-wrap" id="jrTable"></div>
+          </div>
+        </section>
+
+        <!-- ─── Signals ──────────────────────────────────────── -->
+        <section class="page" data-page="signals" hidden>
+          <div class="page-header">
+            <div>
+              <h2>Signals</h2>
+              <p id="sgSubtitle">Every Buy/Sell from a full analysis, checked against later candles.</p>
+            </div>
+            <div class="actions">
+              <button class="btn" type="button" id="refreshSignalsBtn">
+                <span data-icon="refresh" data-size="sm"></span>Refresh
+              </button>
+              <button class="btn primary" type="button" id="verifySignalsBtn">
+                <span data-icon="check" data-size="sm"></span>Verify open signals
+              </button>
+            </div>
+          </div>
+          <div class="kpi-strip" id="sgKpis" role="list"></div>
+          <div class="card">
+            <div class="table-wrap" id="sgTable"></div>
+          </div>
+        </section>
+      </div>
+    </div>
+
+    <!-- ─── Search palette ───────────────────────────────────── -->
+    <div class="overlay" id="palette" hidden>
+      <div class="palette" role="dialog" aria-modal="true" aria-label="Search pairs">
+        <div class="palette-input">
+          <span data-icon="search"></span>
+          <input id="paletteInput" autocomplete="off" spellcheck="false" placeholder="Search a pair — BTC, ZEC, SOLUSDT.P…" />
+          <kbd>Esc</kbd>
+        </div>
+        <div class="palette-list" id="paletteList" role="listbox"></div>
+        <div class="palette-foot">
+          <span><kbd>↑</kbd> <kbd>↓</kbd> move</span>
+          <span><kbd>↵</kbd> open</span>
+          <span><kbd>Esc</kbd> close</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- ─── Dialog ───────────────────────────────────────────── -->
+    <div class="overlay" id="dialog" hidden>
+      <form class="dialog" id="dialogForm" role="dialog" aria-modal="true" aria-labelledby="dialogTitle">
+        <h3 id="dialogTitle"></h3>
+        <p id="dialogText"></p>
+        <div class="field" id="dialogField">
+          <label for="dialogInput" id="dialogLabel"></label>
+          <input id="dialogInput" inputmode="decimal" autocomplete="off" />
+        </div>
+        <div class="actions">
+          <button class="btn" type="button" id="dialogCancel">Cancel</button>
+          <button class="btn primary" type="submit" id="dialogOk">Confirm</button>
+        </div>
+      </form>
+    </div>
+
+    <div class="toasts" id="toasts" aria-live="polite"></div>
+
+    <script src="https://s3.tradingview.com/tv.js"></script>
+    <script src="/static/app.js"></script>
+  </body>
+</html>
