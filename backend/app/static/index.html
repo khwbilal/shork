@@ -1,0 +1,139 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Crypto Chart AI</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500&display=swap"
+      rel="stylesheet"
+    />
+    <link rel="stylesheet" href="/static/app.css" />
+  </head>
+  <body>
+    <div class="app">
+      <header class="topbar">
+        <div class="brand">
+          <strong>Crypto Chart AI</strong>
+          <span>TradingView data → Cursor/OpenAI · local gptchart-style desk</span>
+        </div>
+        <div class="controls">
+          <div class="symbol-box" id="topSymbolBox">
+            <input
+              id="symbol"
+              class="symbol"
+              value="SOLUSDT"
+              autocomplete="off"
+              spellcheck="false"
+              placeholder="Search pair…"
+            />
+            <div class="suggest" id="topSuggest" hidden></div>
+          </div>
+          <select id="exchange">
+            <option>BINANCE</option>
+            <option>KUCOIN</option>
+            <option>BYBIT</option>
+            <option>MEXC</option>
+          </select>
+          <select id="timeframe">
+            <option>15m</option>
+            <option selected>1h</option>
+            <option>4h</option>
+            <option>1D</option>
+          </select>
+        </div>
+      </header>
+      <main class="workspace">
+        <section class="chart-pane">
+          <div class="meta">
+            <span id="tvLabel">BINANCE:SOLUSDT</span>
+            <div class="levels" id="levels">
+              <span class="pill">Bias —</span>
+            </div>
+            <span id="health" style="margin-left: auto; opacity: 0.7">…</span>
+          </div>
+          <div class="chart-stack">
+            <div id="tv_chart"></div>
+            <aside class="structure-board" id="structureBoard">
+              <div class="structure-title">Structure lines</div>
+              <div class="structure-lines" id="structureLines">
+                <div class="structure-empty">Run Full analysis to plot support / resistance / trend levels.</div>
+              </div>
+            </aside>
+          </div>
+        </section>
+        <section class="chat-pane">
+          <div class="chat-header">
+            <h2>AI analysis chat</h2>
+            <p>Search any coin below — chart + analysis stay in sync.</p>
+            <div class="symbol-box chat-search" id="chatSymbolBox">
+              <input
+                id="chatSymbol"
+                class="symbol chat-symbol"
+                value="SOLUSDT"
+                autocomplete="off"
+                spellcheck="false"
+                placeholder="Search coin (e.g. BTW, ZEC, SOLUSDT.P)…"
+              />
+              <div class="suggest" id="chatSuggest" hidden></div>
+            </div>
+            <div class="status" id="provider">Provider: …</div>
+          </div>
+          <div class="messages" id="messages"></div>
+          <form class="composer" id="form">
+            <textarea
+              id="input"
+              placeholder='Ask about the selected pair… e.g. "Is this a long setup?"'
+            ></textarea>
+            <div class="actions">
+              <button class="btn" type="submit">Send</button>
+              <button class="btn ghost" type="button" id="analyzeBtn">Full analysis</button>
+              <button class="btn ghost" type="button" id="journalBtn" title="Log current levels to journal">Journal+</button>
+            </div>
+          </form>
+          <div class="disclaimer">
+            Not financial advice. Outputs are informational only. Trading involves substantial risk of loss.
+          </div>
+        </section>
+      </main>
+      <section class="tools-row" id="toolsRow">
+        <div class="tool-panel">
+          <div class="tool-head">
+            <h3>Watchlist scorer</h3>
+            <button class="btn ghost tiny" type="button" id="watchlistBtn">Score top coins</button>
+          </div>
+          <div class="tool-body" id="watchlistBody">
+            <div class="tool-empty">Score majors for setup quality (confluence + chop + book).</div>
+          </div>
+        </div>
+        <div class="tool-panel">
+          <div class="tool-head">
+            <h3>Trade journal</h3>
+            <button class="btn ghost tiny" type="button" id="refreshJournalBtn">Refresh</button>
+          </div>
+          <div class="tool-stats" id="journalStats">Hit-rate —</div>
+          <div class="tool-body" id="journalBody">
+            <div class="tool-empty">Log a trade after Full analysis (Journal+).</div>
+          </div>
+        </div>
+        <div class="tool-panel">
+          <div class="tool-head">
+            <h3>Signal verify</h3>
+            <div class="tool-actions">
+              <button class="btn ghost tiny" type="button" id="verifySignalsBtn">Verify past</button>
+              <button class="btn ghost tiny" type="button" id="refreshSignalsBtn">Refresh</button>
+            </div>
+          </div>
+          <div class="tool-stats" id="signalStats">Auto-saved from Full analysis · TP/SL check</div>
+          <div class="tool-body" id="signalBody">
+            <div class="tool-empty">Run Full analysis (Buy/Sell) — signals archive here, then Verify past.</div>
+          </div>
+        </div>
+      </section>
+    </div>
+    <script src="https://s3.tradingview.com/tv.js"></script>
+    <script src="/static/app.js"></script>
+  </body>
+</html>
