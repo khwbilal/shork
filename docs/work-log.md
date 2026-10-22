@@ -7,19 +7,19 @@ Items WL-001 to WL-014 were logged retroactively on 2026-10-21, when the ruleset
 | Id | Title | Status |
 |---|---|---|
 | WL-048 | Task Scheduler shows result 0 when a job fails | open |
-| WL-047 | Convert the portal UI to MUI | open; needs Sheryar's ok on the ruleset diff |
+| WL-047 | Convert the portal UI to MUI | in progress (A+B coded; UI check, phase C left) |
 | WL-046 | Financial results for the last 8 quarters per instrument | open; after WL-028, WL-044 |
 | WL-045 | Calendar: earnings dates for US stocks and Binance-related results | earnings part done; BNB burn and unlocks need a source |
 | WL-044 | Instrument catalogue in the database, with autocomplete search | done |
-| WL-043 | Remove "not financial advice" lines from AI replies and the UI | in progress |
+| WL-043 | Remove "not financial advice" lines from AI replies and the UI | done |
 | WL-042 | Hype radar: social and trending coins, daily at 16:30 PKT | open; after WL-028, WL-029 |
 | WL-041 | Stocks and ETFs from Binance in search, chart and analysis | open; after WL-040 |
 | WL-040 | Research: which stocks and ETFs Binance lists | done |
 | WL-039 | Economic and crypto calendar, refreshed daily at 16:00 PKT | done (backend); page with WL-047 |
 | WL-038 | Auto paper trades from the daily picks at 16:00 PKT | open; after WL-029, WL-037 |
 | WL-037 | Top 10 picks per trading style, daily | open; after WL-028, WL-036 |
-| WL-036 | Correlation and beta to BTC and ETH per coin | in progress |
-| WL-035 | BTC and ETH pulse on the dashboard (1M, 1W, 1D, 1H, 15m) | in progress (backend; widget with WL-047) |
+| WL-036 | Correlation and beta to BTC and ETH per coin | done (API and prompt); desk card with WL-047 |
+| WL-035 | BTC and ETH pulse on the dashboard (1M, 1W, 1D, 1H, 15m) | backend done; widget with WL-047 |
 | WL-034 | Analysis names the best strategies for this trade, with win rates | open; after WL-031, WL-033 |
 | WL-033 | Backtester: "Bhalu trades", 50 per strategy per style | open; after WL-028, WL-031 |
 | WL-032 | Notes per strategy | open; after WL-028, WL-031 |
@@ -27,8 +27,8 @@ Items WL-001 to WL-014 were logged retroactively on 2026-10-21, when the ruleset
 | WL-030 | Daily database backup at 20:00 PKT | done |
 | WL-029 | Scheduled jobs: .bat runner and Windows Task Scheduler | done |
 | WL-028 | Database for journal, signals, trades and notes | done |
-| WL-027 | Prompt block hard cut can run 14 characters over the 8k budget | in progress |
-| WL-026 | Confluence guard turns a model confidence of 0.0 into 0.4 when the trade is blocked | in progress |
+| WL-027 | Prompt block hard cut can run 14 characters over the 8k budget | done |
+| WL-026 | Confluence guard turns a model confidence of 0.0 into 0.4 when the trade is blocked | done |
 | WL-025 | Major bumps to decide: TypeScript 7, Vite 8, @vitejs/plugin-react 6 | assessed; awaiting decision |
 | WL-024 | npm patch bump: vite 6.4.4 to 6.4.5 | done |
 | WL-023 | Python minor and patch bumps (fastapi, pydantic-settings, websockets, httpx2) | done |
@@ -67,7 +67,13 @@ Items WL-001 to WL-014 were logged retroactively on 2026-10-21, when the ruleset
 
 - **Context:** Sheryar chose "everything MUI" (2026-10-21) when asked about the WL-044 autocomplete. The React UI (`frontend/`, React 19, strict TS) is custom on the shared `backend/app/static/app.css`; MUI cannot run in the no-build built-in UI (`backend/app/static/`). This supersedes decision 0002 (one stylesheet, two UIs) and changes ruleset 9.1 and 9.2, which needs Sheryar's ok on the exact diff (ruleset 0.1).
 - **Acceptance:** MUI (current major with React 19 support) and its theme replace `app.css` in the React UI: light, dark and system modes; the palette carries the existing token values (`--action`, direction green and red, neutrals) so the look stays recognisable; layout (rail, top bar, Ctrl K), all four pages, dialogs (MUI Dialog instead of `askDialog`), the MUI Autocomplete for pair search (fed by WL-044); conventions kept: green and red only for direction with a glyph, missing data as an em dash with a tooltip reason, model output escaped; what happens to the built-in UI decided and done; new decision note; UI check desktop, phone, light and dark; gate green.
-- **Status:** open; needs Sheryar's ok on the ruleset diff.
+- **Progress at handover (2026-10-22):** phases A and B are coded and the gate is green: eslint 0, tsc 0, build 0, npm audit 0. That covers MUI 9.4.0 with emotion 11.14, the theme from the old tokens, the Drawer and AppBar shell, the Autocomplete search, all four pages, the Calendar page, the pulse strip, the correlation card, job status, `Na`, and the confirm helper. **Left:**
+  1. The Playwright UI check: desktop and phone, light and dark, five pages, the "nvd" search, and a mocked analysis card.
+  2. A visual review against the old look.
+  3. Optional code-splitting: the bundle is 659 kB, which trips Vite's 500 kB warning.
+  4. Phase C.
+- **Open point for Sheryar:** failing jobs use red (as WL-048 asks), but ruleset 9.3 keeps red for Sell and loss. Either keep red for job failure, which needs a ruleset note, or switch it to warning.
+- **Status:** in progress; phases A and B coded, UI check and phase C left.
 
 ### WL-046: Financial results for the last 8 quarters per instrument
 
@@ -93,7 +99,8 @@ Items WL-001 to WL-014 were logged retroactively on 2026-10-21, when the ruleset
 
 - **Context:** Sheryar does not want to be told that the analysis is not financial advice. The text sits in the prompt rules (`ai.py`: "Not financial advice."), the `disclaimer` fields of `AnalyzeResponse` and `ChatResponse` (`schemas.py`), the chat footer in `static/index.html` and `ChatPanel.tsx`, and the docs (`README.md`, `docs/README.md`).
 - **Acceptance:** the prompt no longer asks for the line and tells the model not to add disclaimers; the UI footers are removed in both UIs; the `disclaimer` field is removed from both responses with `api.ts` and `api-reference.md` updated (ruleset 8); docs lines removed; tests updated; gate green.
-- **Status:** open.
+- **Status:** done 2026-10-22.
+- **Outcome:** the prompt now tells the model not to add disclaimers (no "not financial advice", no "I am not a financial adviser", no risk-warning lines); `disclaimer` removed from `AnalyzeResponse`, `ChatResponse` and `api.ts`; the chat footer removed from both UIs and the unused `.disclaimer` CSS rule deleted; disclaimer lines removed from `README.md`, `docs/README.md`, `docs/mac-setup.md` and `features/analysis-and-chat.md`. Files: `backend/app/ai.py`, `schemas.py`, `static/index.html`, `static/app.css`, `frontend/src/components/ChatPanel.tsx`, `frontend/src/api.ts`. No incidents.
 
 ### WL-042: Hype radar: social and trending coins, daily at 16:30 PKT
 
@@ -138,13 +145,15 @@ Items WL-001 to WL-014 were logged retroactively on 2026-10-21, when the ruleset
 
 - **Context:** Sheryar wants to know how much the traded coin moves with BTC and ETH, and to see it in the Top 10 picks (WL-037).
 - **Acceptance:** for a coin and timeframe: correlation of returns and beta against BTC and ETH over a stated window (proposal: 30 days of 1h returns, plus 90 days of 1d); shown on the desk and in the snapshot (and so in the prompt); a function reused by WL-037; tests on fixed series; gate green.
-- **Status:** open.
+- **Status:** done 2026-10-22 for the API and the prompt; the desk card lands with WL-047, the picks reuse in WL-037.
+- **Outcome:** `backend/app/correlation.py` (`compute_correlation`), `GET /api/correlation/{symbol}`, `market.correlation` in the snapshot and a short form at the end of the prompt block. Live check: SOLUSDT 30d 1h vs BTC corr 0.847, beta 1.456. Files: `correlation.py` (new), `market.py`, `schemas.py`, `main.py`, `tests/test_correlation.py` (new, 12 tests). Docs: [API reference](api-reference.md#get-apicorrelationsymbol). No incidents.
 
 ### WL-035: BTC and ETH pulse on the dashboard (1M, 1W, 1D, 1H, 15m)
 
 - **Context:** Sheryar wants live BTC and ETH values and indicators on the dashboard with a pulse per timeframe: monthly, weekly, daily, hourly and 15 minutes.
 - **Acceptance:** a pulse strip for BTC and ETH: live price and 24h change, and per timeframe a trend direction, RSI, EMA position and a bias pill with a glyph (ruleset 9.3); refreshes on an interval without blocking the desk; Binance data only (no billable AI); both UIs; UI check; gate green.
-- **Status:** open.
+- **Status:** backend done 2026-10-22; the widget lands with WL-047.
+- **Outcome so far:** `GET /api/pulse` (`backend/app/pulse.py`), BTC and ETH over 1M, 1w, 1d, 1h, 15m with trend, RSI and bias, cached 20 s; `tests/test_pulse.py` (12 tests). Docs: [API reference](api-reference.md#get-apipulse).
 
 ### WL-034: Analysis names the best strategies for this trade, with win rates
 
@@ -196,13 +205,15 @@ Items WL-001 to WL-014 were logged retroactively on 2026-10-21, when the ruleset
 
 - **Context:** found by the WL-018 tests. When `market.context_to_prompt_block` hits its hard cut it returns `max_chars` characters plus the " …[truncated]" marker, so the block can be 14 characters longer than the budget. Harmless in practice (typical size is about 4.5k), but the budget is meant to be a cap. The test in `backend/tests/test_prompt_block.py` pins the current length.
 - **Acceptance:** the output, marker included, never exceeds `max_chars`; the pinning test is updated; pytest green.
-- **Status:** open.
+- **Status:** done 2026-10-22.
+- **Outcome:** the hard cut keeps `max_chars - len(marker)` characters plus the marker and is capped at `max_chars`; budgets smaller than the marker are capped too. Files: `backend/app/market.py`, `backend/tests/test_prompt_block.py`. Docs: [Analysis pipeline](analysis-pipeline.md#from-snapshot-to-prompt). No incidents.
 
 ### WL-026: Confluence guard turns a model confidence of 0.0 into 0.4 when the trade is blocked
 
 - **Context:** found by the WL-018 tests. In `main._apply_confluence_guardrail`, the blocked-trade branch caps confidence with `min(conf_val or 0.4, 0.4)`; a model confidence of 0.0 is falsy and becomes 0.4. Related to the policy question in WL-021, but a plain bug on its own.
 - **Acceptance:** 0.0 stays 0.0, a missing confidence still defaults to 0.4; a test pins both; pytest green.
-- **Status:** open.
+- **Status:** done 2026-10-22.
+- **Outcome:** the blocked-trade branch now uses `0.4 if conf_val is None else min(conf_val, 0.4)`; 0.0 stays 0.0. New test `test_trade_not_allowed_keeps_zero_confidence`. Files: `backend/app/main.py`, `backend/tests/test_guards.py`. Docs: [AI providers](ai-providers.md#what-happens-to-the-reply). No incidents.
 
 ### WL-025: Major bumps to decide: TypeScript 7, Vite 8, @vitejs/plugin-react 6
 

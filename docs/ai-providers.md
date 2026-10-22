@@ -157,7 +157,7 @@ The provider only writes text. The backend then:
 1. **Parses** the JSON block the prompt asks for (`extract_levels`). If there isn't one, it falls back to a keyword scan.
 2. **Fills gaps** in entry, stop, target, support, resistance and EMAs from the local `suggested_levels` (`_fill_levels_from_market`).
 3. **Applies the guardrail** (`_apply_confluence_guardrail`). The AI's bias is overridden when it disagrees with the deterministic [confluence score](features/confluence-score.md):
-   - Setup blocked by the chop filter → **Neutral**, confidence capped at 40%.
+   - Setup blocked by the chop filter → **Neutral**, confidence capped at 40% (a model confidence of 0 stays 0, a missing one becomes 40%; WL-026).
    - |score| < 2.5 → **Neutral**.
    - The opposite side of a Buy or Sell confluence is never allowed.
    - |score| ≥ 3.5 with an AI answer of Neutral → upgraded to the confluence bias.

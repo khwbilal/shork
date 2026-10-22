@@ -1,7 +1,23 @@
+import Alert from "@mui/material/Alert";
+import Box from "@mui/material/Box";
+import Button from "@mui/material/Button";
+import Card from "@mui/material/Card";
+import Chip from "@mui/material/Chip";
+import CircularProgress from "@mui/material/CircularProgress";
+import Skeleton from "@mui/material/Skeleton";
+import Stack from "@mui/material/Stack";
+import TableBody from "@mui/material/TableBody";
+import TableCell from "@mui/material/TableCell";
+import TableHead from "@mui/material/TableHead";
+import TableRow from "@mui/material/TableRow";
+import Typography from "@mui/material/Typography";
+import DoneAll from "@mui/icons-material/DoneAll";
+import Refresh from "@mui/icons-material/Refresh";
+import TrackChanges from "@mui/icons-material/TrackChanges";
 import { useCallback, useEffect, useState } from "react";
 import { api, type Signal, type Stats } from "../api";
 import { useFeedback } from "../components/feedback";
-import { BiasPill, Button, EmptyState, KpiStrip, Na, PageHeader, StatusPill, V } from "../components/ui";
+import { ActionButton, BiasPill, DataTable, EmptyState, KpiStrip, Na, Num, PageHeader, StatusPill, V } from "../components/ui";
 import { fmtPx, fmtSigned, fmtWhen, humanize, isNum } from "../lib/format";
 
 export default function Signals({
@@ -60,71 +76,106 @@ export default function Signals({
   }
 
   let table: React.ReactNode;
-  if (error) table = <EmptyState text={`Signals unavailable: ${error}`} />;
-  else if (!signals) table = <EmptyState text="Loading…" icon="clock" />;
+  if (error)
+    table = (
+      <Alert severity="warning" sx={{ m: 2 }}>
+        Signals unavailable: {error}
+      </Alert>
+    );
+  else if (!signals)
+    table = (
+      <Box sx={{ p: 2 }}>
+        {[0, 1, 2].map((i) => (
+          <Skeleton key={i} height={40} />
+        ))}
+      </Box>
+    );
   else if (!signals.length)
-    table = <EmptyState text="No archived signals yet. A full analysis with a Buy or Sell bias saves one here." icon="target" />;
+    table = <EmptyState text="No archived signals yet. A full analysis with a Buy or Sell bias saves one here." icon={<TrackChanges />} />;
   else
     table = (
-      <table className="data">
-        <thead>
-          <tr>
-            <th>Created</th>
-            <th>Pair</th>
-            <th>Bias</th>
-            <th>Setup</th>
-            <th className="num">Entry</th>
-            <th className="num">Stop</th>
-            <th className="num">Target</th>
-            <th className="num">Score</th>
-            <th>Status</th>
-            <th className="num">R</th>
-            <th />
-          </tr>
-        </thead>
-        <tbody>
+      <DataTable minWidth={1040}>
+        <TableHead>
+          <TableRow>
+            <TableCell>Created</TableCell>
+            <TableCell>Pair</TableCell>
+            <TableCell>Bias</TableCell>
+            <TableCell>Setup</TableCell>
+            <TableCell align="right">Entry</TableCell>
+            <TableCell align="right">Stop</TableCell>
+            <TableCell align="right">Target</TableCell>
+            <TableCell align="right">Score</TableCell>
+            <TableCell>Status</TableCell>
+            <TableCell align="right">R</TableCell>
+            <TableCell />
+          </TableRow>
+        </TableHead>
+        <TableBody>
           {signals.map((s) => (
-            <tr key={s.id}>
-              <td><V value={fmtWhen(s.created_at)} /></td>
-              <td className="sym">
-                {s.symbol} <span className="card-sub">{s.timeframe}</span>
-              </td>
-              <td><BiasPill bias={s.bias} /></td>
-              <td>{s.setup ? <span className="chip">{humanize(s.setup)}</span> : <Na />}</td>
-              <td className="num"><V value={fmtPx(s.entry)} /></td>
-              <td className="num"><V value={fmtPx(s.stop_loss)} /></td>
-              <td className="num"><V value={fmtPx(s.take_profit)} /></td>
-              <td className="num"><V value={fmtSigned(s.confluence)} /></td>
-              <td><StatusPill status={s.status} title={s.outcome ?? undefined} /></td>
-              <td className="num">
+            <TableRow key={s.id} hover>
+              <TableCell>
+                <V value={fmtWhen(s.created_at)} mono={false} />
+              </TableCell>
+              <TableCell>
+                <Num sx={{ fontWeight: 700 }}>{s.symbol}</Num>{" "}
+                <Typography component="span" variant="caption" sx={{ color: "text.secondary" }}>
+                  {s.timeframe}
+                </Typography>
+              </TableCell>
+              <TableCell>
+                <BiasPill bias={s.bias} />
+              </TableCell>
+              <TableCell>{s.setup ? <Chip size="small" label={humanize(s.setup)} /> : <Na />}</TableCell>
+              <TableCell align="right">
+                <V value={fmtPx(s.entry)} />
+              </TableCell>
+              <TableCell align="right">
+                <V value={fmtPx(s.stop_loss)} />
+              </TableCell>
+              <TableCell align="right">
+                <V value={fmtPx(s.take_profit)} />
+              </TableCell>
+              <TableCell align="right">
+                <V value={fmtSigned(s.confluence)} />
+              </TableCell>
+              <TableCell>
+                <StatusPill status={s.status} title={s.outcome ?? undefined} />
+              </TableCell>
+              <TableCell align="right">
                 <V value={fmtSigned(s.r_multiple, 2)} reason={s.status === "open" ? "Still open" : "Not decided"} />
-              </td>
-              <td>
-                <div className="row-actions">
-                  <Button compact busy={checking === s.id} busyLabel="…" onClick={() => void check(s.id)}>
-                    Check
-                  </Button>
-                </div>
-              </td>
-            </tr>
+              </TableCell>
+              <TableCell align="right">
+                <Button
+                  size="small"
+                  variant="outlined"
+                  color="inherit"
+                  sx={{ borderColor: "divider" }}
+                  disabled={checking === s.id}
+                  startIcon={checking === s.id ? <CircularProgress size={12} color="inherit" /> : undefined}
+                  onClick={() => void check(s.id)}
+                >
+                  Check
+                </Button>
+              </TableCell>
+            </TableRow>
           ))}
-        </tbody>
-      </table>
+        </TableBody>
+      </DataTable>
     );
 
   return (
-    <>
+    <Stack spacing={2}>
       <PageHeader
         title="Signals"
-        subtitle="Every Buy/Sell from a full analysis, checked against later candles."
+        subtitle="Every Buy or Sell from a full analysis, checked against later candles."
         actions={
           <>
-            <Button icon="refresh" onClick={() => void refresh()}>
+            <ActionButton icon={<Refresh />} onClick={() => void refresh()}>
               Refresh
-            </Button>
-            <Button icon="check" primary busy={verifying} busyLabel="Verifying…" onClick={() => void verifyAll()}>
+            </ActionButton>
+            <ActionButton icon={<DoneAll />} primary busy={verifying} busyLabel="Verifying…" onClick={() => void verifyAll()}>
               Verify open signals
-            </Button>
+            </ActionButton>
           </>
         }
       />
@@ -144,9 +195,7 @@ export default function Signals({
           },
         ]}
       />
-      <div className="card">
-        <div className="table-wrap">{table}</div>
-      </div>
-    </>
+      <Card>{table}</Card>
+    </Stack>
   );
 }

@@ -349,8 +349,6 @@ System Settings → Privacy & Security → allow the blocked tool, or reinstall 
 3. **Full analysis** pulls technicals + whale/funding/OI when available
 4. Claude returns bias, entry, stop, target, support, resistance
 
-Not financial advice.
-
 ---
 
 ## Checklist

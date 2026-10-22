@@ -1,6 +1,6 @@
 # Project state & handoff
 
-**Last updated:** 2026-10-21. Read this first when picking the project back up. It records what has been built, why, how it was verified, and what is still open. The rest of `docs/` describes *how things work*; this page describes *where things stand*.
+**Last updated:** 2026-10-22. Read this first when picking the project back up. It records what has been built, why, how it was verified, and what is still open. The rest of `docs/` describes *how things work*; this page describes *where things stand*.
 
 > ⚠ **This folder is not a git repository**, so there is no history to diff or revert against. The user chose to **leave git out for now** (2026-10-21): don't initialise it or suggest it. Back up a file (e.g. to the scratchpad) before a risky edit instead.
 
@@ -64,7 +64,16 @@ Sheryar asked for a database, a daily backup, Binance stocks in the database, MU
 - **WL-040 and WL-044:** 2,183 Binance instruments with names are stored in the database: crypto, 180 stock perps, 32 ETFs, commodities, and the bStocks on spot ([Binance instruments](binance-instruments.md)). Search finds them by name. The `instruments` job runs daily at 15:30.
 - **WL-039, plus part of WL-045:** the calendar covers today plus 7 days, with US macro, earnings of Binance-listed stocks and Binance announcements. The `calendar` job runs daily at 16:00 ([Calendar](features/calendar.md)). It has no page yet.
 - **Decided by Sheryar:** SQLite; MUI everywhere (option 2). The MUI conversion (WL-047) waits on Sheryar's ok to the ruleset diff that retires the built-in UI.
-- **Running at handover:** a `wl-worker` batch for WL-026, WL-027, WL-043, WL-036 and the backend of WL-035. Check the work log for its outcome.
+- **Done on 2026-10-22:** WL-026 and WL-027 (bug fixes), WL-043 (no disclaimers anywhere), WL-036 (`/api/correlation`, in the snapshot and the prompt), the WL-035 backend (`/api/pulse`). 170 tests pass.
+- **Ruleset 1.2** (approved 2026-10-22): React + MUI is the only portal ([decision 0008](decisions/0008-react-mui-only.md)). The built-in UI in `backend/app/static/` is frozen until WL-047 removes it.
+
+### Resume here (next session)
+
+1. **WL-047 phases A and B** (the MUI portal in `frontend/`) were stopped at a safe point at handover. Read the WL-047 entry in the work log for the checklist of what is done and what is left, then continue. Backups of the pre-MUI frontend and static UI are in the scratchpad folder `backup-wl047` (session scratchpad; it may be gone, so in that case the old UI still lives in `backend/app/static/`).
+2. **WL-047 phase C:** FastAPI serves `frontend/dist` at `/`, the start scripts run `npm run build` first, `backend/app/static/` is removed, `ui.md` is rewritten for MUI, and the CLAUDE.md and ruleset paths are checked.
+3. Then the functional items in order: WL-031 strategies, WL-033 backtester, WL-034, WL-037 picks, WL-038 paper trades, WL-042 hype radar, WL-041 stocks in analysis, WL-046 financials, and WL-032 notes.
+- **Leave alone:** PIDs 8208 and 25772 (`python.exe -`) belong to a separate project of Sheryar's.
+- **Working style:** Sheryar wants short updates and less talk (memory `less-talk`).
 
 ## Current local state
 
@@ -115,11 +124,12 @@ Open work is tracked in the **[work log](work-log.md)**. That table is authorita
 | WL-022 | certifi CRITICAL (Trivy), fixed by a lock bump to 2026.10.19; Trivy now clean | done 2026-10-21 |
 | WL-023, WL-024 | Python and npm patch/minor bumps: fastapi 0.157, vite 6.4.5 and others | done 2026-10-21 |
 | WL-025 | Majors: Vite 8 + plugin-react 6 and TS 6 pass in trials; TS 7 blocked by typescript-eslint | assessed; awaiting decision |
-| WL-047 | Convert the portal to MUI (includes the calendar page, autocomplete and pulse widget) | needs Sheryar's ok on the ruleset diff |
+| WL-047 | Convert the portal to MUI (calendar page, autocomplete, pulse widget, job status) | in progress; approved (ruleset 1.2) |
 | WL-048 | Task Scheduler shows 0 when a job fails | open |
 | WL-045 | BNB burn, token unlocks: need a keyed source (CoinMarketCal) | needs Sheryar |
 | WL-031 to WL-038, WL-041, WL-042, WL-046 | Strategies, backtests, picks, paper trades, stocks in analysis, hype radar, financials | open; see the work log for order and dependencies |
-| WL-026, WL-027, WL-043, WL-035, WL-036 | Two bug fixes, no disclaimers, BTC and ETH pulse (backend), correlation | in progress at handover |
+| WL-026, WL-027, WL-043, WL-036 | Two bug fixes, no disclaimers, correlation | done 2026-10-22 |
+| WL-035 | BTC and ETH pulse: backend done, widget in WL-047 | partly done |
 | WL-021 | May the confluence guard override an AI "Neutral"? Also: a Neutral bias with a strong score lets the model's Buy or Sell pass | needs Sheryar |
 | WL-020 | Writing-style sweep of the docs | done 2026-10-21 |
 | WL-019, WL-018 | Lint tooling (ruff, ESLint) and 95 pytest tests; in the gate since ruleset 1.1 | done 2026-10-21 |
@@ -130,7 +140,7 @@ Standing notes: expired-signal R is marked to market and journal R needs an exit
 
 ## Way of working
 
-Since WL-015 every session follows [reference/ruleset.md](reference/ruleset.md) (adapted from unefy-platform, see [decision 0006](decisions/0006-unefy-way-of-working.md)): issue first in the work log, `wl-worker` agent for items, docs pass last, real exit codes, no git.
+Since WL-015 every session follows [reference/ruleset.md](reference/ruleset.md) (adapted from unefy-platform, see [decision 0006](decisions/0006-unefy-way-of-working.md)): issue first in the work log, the main chat does every item (no sub agents since ruleset 1.3), docs pass last, real exit codes, no git.
 
 ## Files changed or added (high level)
 

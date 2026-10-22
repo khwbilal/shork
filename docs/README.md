@@ -2,7 +2,7 @@
 
 A local crypto analysis desk: a live TradingView chart next to an AI analyst. The backend gathers real market context (technical indicators, multi-timeframe trend, whale positioning, order book, liquidation map), scores it, and then asks an AI (your **Claude subscription**, the Claude API, Cursor or OpenAI; chosen at startup) for a trade plan that has to respect that score.
 
-> Not financial advice. Market data may be delayed or incomplete. You are responsible for your own trading decisions.
+> Market data may be delayed or incomplete.
 
 ## Start here
 

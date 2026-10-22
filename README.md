@@ -59,6 +59,6 @@ Full list: [docs/api-reference.md](docs/api-reference.md), plus Swagger at `/doc
 
 Do **not** use `npx @atilaahmettaner/tradingview-mcp`. The official project is Python-only; fake npm copies have shipped malware. Keep the server on `127.0.0.1`: the API has no auth and spends your AI credits.
 
-## Disclaimer
+## Data note
 
-Not financial advice. Market data may be delayed or incomplete. You are solely responsible for trading decisions.
+Market data may be delayed or incomplete.

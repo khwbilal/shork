@@ -1,6 +1,20 @@
+import Alert from "@mui/material/Alert";
+import Box from "@mui/material/Box";
+import Button from "@mui/material/Button";
+import Card from "@mui/material/Card";
+import Chip from "@mui/material/Chip";
+import LinearProgress from "@mui/material/LinearProgress";
+import Skeleton from "@mui/material/Skeleton";
+import Stack from "@mui/material/Stack";
+import TableBody from "@mui/material/TableBody";
+import TableCell from "@mui/material/TableCell";
+import TableHead from "@mui/material/TableHead";
+import TableRow from "@mui/material/TableRow";
+import FormatListBulleted from "@mui/icons-material/FormatListBulleted";
+import Refresh from "@mui/icons-material/Refresh";
 import { useState } from "react";
 import { api, type WatchlistResponse } from "../api";
-import { Button, BiasPill, EmptyState, KpiStrip, Na, PageHeader, V } from "../components/ui";
+import { ActionButton, BiasPill, DataTable, EmptyState, KpiStrip, Na, Num, PageHeader, Pill, V } from "../components/ui";
 import { fmtPx, fmtSigned, humanize } from "../lib/format";
 
 export default function Watchlist({
@@ -28,81 +42,91 @@ export default function Watchlist({
   const notScored = <Na reason="Not scored yet" />;
 
   let table: React.ReactNode;
-  if (busy) table = <EmptyState text="Scoring the watchlist… this takes 20–40 seconds." icon="clock" />;
-  else if (error) table = <EmptyState text={`Scoring failed: ${error}`} />;
-  else if (!data) table = <EmptyState text="Scoring takes 20–40 seconds. Use the button above." icon="list" />;
+  if (busy)
+    table = (
+      <Box sx={{ p: 2 }}>
+        <Alert severity="info" variant="outlined" sx={{ mb: 2 }}>
+          Scoring the watchlist. This takes 20 to 40 seconds.
+        </Alert>
+        {[0, 1, 2, 3].map((i) => (
+          <Skeleton key={i} height={40} />
+        ))}
+      </Box>
+    );
+  else if (error)
+    table = (
+      <Alert severity="warning" sx={{ m: 2 }}>
+        Scoring failed: {error}
+      </Alert>
+    );
+  else if (!data) table = <EmptyState text="Scoring takes 20 to 40 seconds. Use the button above." icon={<FormatListBulleted />} />;
   else if (!rows.length) table = <EmptyState text="No results." />;
   else
     table = (
-      <table className="data">
-        <thead>
-          <tr>
-            <th>Pair</th>
-            <th>Quality</th>
-            <th>Bias</th>
-            <th className="num">Confluence</th>
-            <th>Setup</th>
-            <th>MTF</th>
-            <th>Book</th>
-            <th>Liquidity</th>
-            <th className="num">Price</th>
-            <th />
-          </tr>
-        </thead>
-        <tbody>
+      <DataTable minWidth={980}>
+        <TableHead>
+          <TableRow>
+            <TableCell>Pair</TableCell>
+            <TableCell>Quality</TableCell>
+            <TableCell>Bias</TableCell>
+            <TableCell align="right">Confluence</TableCell>
+            <TableCell>Setup</TableCell>
+            <TableCell>MTF</TableCell>
+            <TableCell>Book</TableCell>
+            <TableCell>Liquidity</TableCell>
+            <TableCell align="right">Price</TableCell>
+            <TableCell />
+          </TableRow>
+        </TableHead>
+        <TableBody>
           {rows.map((r) => (
-            <tr key={r.symbol}>
-              <td className="sym">{r.symbol}</td>
-              <td>
-                <span className="quality">
-                  <span className="track">
-                    <i style={{ width: `${r.quality ?? 0}%` }} />
-                  </span>
-                  {r.quality ?? 0}
-                </span>
-              </td>
-              <td>{r.error ? <Na reason={r.error} /> : <BiasPill bias={r.bias} />}</td>
-              <td className="num">
+            <TableRow key={r.symbol} hover>
+              <TableCell>
+                <Num sx={{ fontWeight: 700 }}>{r.symbol}</Num>
+              </TableCell>
+              <TableCell>
+                {r.quality === undefined ? (
+                  <Na reason={r.error ?? "Not scored"} />
+                ) : (
+                  <Stack direction="row" spacing={1} sx={{ alignItems: "center" }}>
+                    <LinearProgress variant="determinate" value={Math.max(0, Math.min(100, r.quality))} sx={{ width: 64, height: 6, borderRadius: 3 }} />
+                    <Num>{r.quality}</Num>
+                  </Stack>
+                )}
+              </TableCell>
+              <TableCell>{r.error ? <Na reason={r.error} /> : <BiasPill bias={r.bias} />}</TableCell>
+              <TableCell align="right">
                 <V value={fmtSigned(r.confluence)} />
-              </td>
-              <td>
+              </TableCell>
+              <TableCell>
                 {r.setup ? (
-                  <>
-                    <span className="chip">{humanize(r.setup)}</span>
-                    {r.trade_allowed === false ? (
-                      <>
-                        {" "}
-                        <span className="pill warn">
-                          <span className="g">!</span>chop
-                        </span>
-                      </>
-                    ) : null}
-                  </>
+                  <Stack direction="row" spacing={0.5}>
+                    <Chip size="small" label={humanize(r.setup)} />
+                    {r.trade_allowed === false ? <Pill glyph="!" label="chop" tone="warn" /> : null}
+                  </Stack>
                 ) : (
                   <Na />
                 )}
-              </td>
-              <td>{r.mtf_alignment ? humanize(r.mtf_alignment).toLowerCase() : <Na />}</td>
-              <td>{r.book_bias ?? <Na reason="Depth unavailable" />}</td>
-              <td>{r.liq_bias ?? <Na reason="No futures data" />}</td>
-              <td className="num">
+              </TableCell>
+              <TableCell>{r.mtf_alignment ? humanize(r.mtf_alignment).toLowerCase() : <Na />}</TableCell>
+              <TableCell>{r.book_bias ?? <Na reason="Depth unavailable" />}</TableCell>
+              <TableCell>{r.liq_bias ?? <Na reason="No futures data" />}</TableCell>
+              <TableCell align="right">
                 <V value={fmtPx(r.price)} />
-              </td>
-              <td>
-                <div className="row-actions">
-                  <Button compact onClick={() => onOpen(r.symbol)}>
-                    Open
-                  </Button>
-                </div>
-              </td>
-            </tr>
+              </TableCell>
+              <TableCell align="right">
+                <Button size="small" variant="outlined" color="inherit" sx={{ borderColor: "divider" }} onClick={() => onOpen(r.symbol)}>
+                  Open
+                </Button>
+              </TableCell>
+            </TableRow>
           ))}
-        </tbody>
-      </table>
+        </TableBody>
+      </DataTable>
     );
 
   return (
-    <>
+    <Stack spacing={2}>
       <PageHeader
         title="Watchlist"
         subtitle={
@@ -111,9 +135,9 @@ export default function Watchlist({
             : "Score the majors for setup quality: confluence, chop filter, book and liquidity."
         }
         actions={
-          <Button icon="refresh" primary busy={busy} busyLabel="Scoring…" onClick={score}>
+          <ActionButton icon={<Refresh />} primary busy={busy} busyLabel="Scoring…" onClick={() => void score()}>
             Score watchlist
-          </Button>
+          </ActionButton>
         }
       />
       <KpiStrip
@@ -123,14 +147,18 @@ export default function Watchlist({
           {
             label: "Top pick",
             value: top ? top.symbol : notScored,
-            note: top ? `Quality ${String(top.quality ?? 0)} · ${top.bias ?? "—"}` : "Highest quality",
+            note: top ? (
+              <>
+                Quality {top.quality ?? <Na />} · {top.bias ?? <Na />}
+              </>
+            ) : (
+              "Highest quality"
+            ),
           },
           { label: "Timeframe", value: data?.timeframe ?? timeframe, note: "From the top bar" },
         ]}
       />
-      <div className="card">
-        <div className="table-wrap">{table}</div>
-      </div>
-    </>
+      <Card>{table}</Card>
+    </Stack>
   );
 }

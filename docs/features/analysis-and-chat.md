@@ -29,8 +29,7 @@ The Desk page has two ways to ask the AI: **Full analysis** gives a structured t
     "confidence": 0.57, "reasoning": "…"
   },
   "analysis": "BIAS: Buy\nSETUP: trend_continuation — trade ok? yes\n…",
-  "market": { "...": "full snapshot, see analysis-pipeline.md" },
-  "disclaimer": "Not financial advice…"
+  "market": { "...": "full snapshot, see analysis-pipeline.md" }
 }
 ```
 

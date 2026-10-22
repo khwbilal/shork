@@ -23,12 +23,14 @@
 symbol, exchange, timeframe, tv_symbol, yahoo_symbol, data_source,
 coin_analysis, multi_timeframe, yahoo_price,
 flow, orderbook, liquidity, mtf_local, regime, setup, confluence,
+upcoming_events,     # high-impact macro events in the next 24 h (WL-039)
+correlation,         # vs BTC and ETH, see api-reference.md (WL-036)
 recorded_signal_id   # only on /api/analyze when a signal was archived
 ```
 
 ## From snapshot to prompt
 
-`context_to_prompt_block` condenses the snapshot (`condense_market_context`) into compact JSON with empty values removed, and caps it at **8,000 characters** (a typical snapshot is about 4,500). `setup` and `confluence` come first, right after pair and price, because the guardrails depend on them. If the block is still over budget, low-value sections (pivots, level hints, SMAs, …) are dropped whole, never cut mid-field. Run this to see exactly what the model receives:
+`context_to_prompt_block` condenses the snapshot (`condense_market_context`) into compact JSON with empty values removed, and caps it at **8,000 characters** (a typical snapshot is about 4,500). `setup` and `confluence` come first, right after pair and price, because the guardrails depend on them. `upcoming_events` and a short form of `correlation` come last. If the block is still over budget, low-value sections (pivots, level hints, SMAs, …, and correlation last of all) are dropped whole, never cut mid-field. As a final resort the block is cut and ends with a truncation marker; the result, marker included, never exceeds the budget (WL-027). Run this to see exactly what the model receives:
 
 ```bash
 curl -s "http://127.0.0.1:8000/api/market/SOLUSDT?timeframe=1h" | python -m json.tool

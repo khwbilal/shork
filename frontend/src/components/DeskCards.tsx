@@ -1,101 +1,212 @@
-import type { Market, TradeLevels } from "../api";
-import { biasClass, currentPrice, fmtConf, fmtPct, fmtPx, fmtSigned, humanize, isNum } from "../lib/format";
-import { BiasPill, Card, EmptyState, Na, TrendPill, V } from "./ui";
+import Box from "@mui/material/Box";
+import Stack from "@mui/material/Stack";
+import Table from "@mui/material/Table";
+import TableBody from "@mui/material/TableBody";
+import TableCell from "@mui/material/TableCell";
+import TableHead from "@mui/material/TableHead";
+import TableRow from "@mui/material/TableRow";
+import Tooltip from "@mui/material/Tooltip";
+import Typography from "@mui/material/Typography";
+import CompareArrows from "@mui/icons-material/CompareArrows";
+import LayersOutlined from "@mui/icons-material/LayersOutlined";
+import SpeedOutlined from "@mui/icons-material/SpeedOutlined";
+import WaterDropOutlined from "@mui/icons-material/WaterDropOutlined";
+import WavesOutlined from "@mui/icons-material/WavesOutlined";
+import type { ReactNode } from "react";
+import type { CorrelationStat, Market, TradeLevels } from "../api";
+import { biasClass, currentPrice, fmtConf, fmtFixed, fmtPct, fmtPx, fmtSigned, humanize, isNum } from "../lib/format";
+import { BiasPill, EmptyState, Na, Num, Pill, SectionCard, TrendPill, V, monoSx } from "./ui";
 
-const LEVEL_ROWS: [string, keyof TradeLevels, string][] = [
-  ["Resistance 2", "resistance_2", "--lv-res"],
-  ["Resistance", "resistance", "--lv-res"],
-  ["Target", "take_profit", "--lv-target"],
-  ["EMA 20", "ema20", "--lv-ema20"],
-  ["Entry", "entry", "--lv-entry"],
-  ["EMA 50", "ema50", "--lv-ema50"],
-  ["Support", "support", "--lv-support"],
-  ["Support 2", "support_2", "--lv-support"],
-  ["Stop", "stop_loss", "--lv-stop"],
+type LevelColor = "res" | "target" | "entry" | "ema20" | "ema50" | "support" | "stop";
+
+const LEVEL_ROWS: [string, keyof TradeLevels, LevelColor][] = [
+  ["Resistance 2", "resistance_2", "res"],
+  ["Resistance", "resistance", "res"],
+  ["Target", "take_profit", "target"],
+  ["EMA 20", "ema20", "ema20"],
+  ["Entry", "entry", "entry"],
+  ["EMA 50", "ema50", "ema50"],
+  ["Support", "support", "support"],
+  ["Support 2", "support_2", "support"],
+  ["Stop", "stop_loss", "stop"],
 ];
 
+type LevelRow = { label: string; val: number; color: string; price: boolean };
+
 export function LevelsBoard({ levels, market }: Readonly<{ levels: TradeLevels | null; market: Market | null }>) {
+  const heading = (
+    <Typography variant="overline" component="div" sx={{ color: "text.secondary", mb: 1 }}>
+      Structure levels
+    </Typography>
+  );
   if (!levels) {
     return (
-      <div className="levels-board">
-        <div className="overline">Structure levels</div>
-        <EmptyState text="Levels appear here after a full analysis." icon="layers" />
-      </div>
+      <Box>
+        {heading}
+        <EmptyState text="Levels appear here after a full analysis." icon={<LayersOutlined />} />
+      </Box>
     );
   }
-  const rows = LEVEL_ROWS.map(([label, key, color]) => ({ label, val: levels[key], color, price: false })).filter(
-    (r): r is { label: string; val: number; color: string; price: boolean } => isNum(r.val),
-  );
+  const rows: LevelRow[] = [];
+  for (const [label, key, color] of LEVEL_ROWS) {
+    const val = levels[key];
+    if (isNum(val)) rows.push({ label, val: Number(val), color: `levels.${color}`, price: false });
+  }
   const px = currentPrice(market);
-  if (isNum(px)) rows.push({ label: "Last price", val: px, color: "--text", price: true });
+  if (isNum(px)) rows.push({ label: "Last price", val: px, color: "text.primary", price: true });
   rows.sort((a, b) => b.val - a.val);
   return (
-    <div className="levels-board">
-      <div className="overline">Structure levels</div>
+    <Box>
+      {heading}
       {rows.length ? (
-        rows.map((r) => (
-          <div className={`level-row${r.price ? " price" : ""}`} key={r.label}>
-            <i className="swatch" style={{ background: `var(${r.color})` }} />
-            <div>
-              <span>{r.label}</span>
-              <strong>{fmtPx(r.val)}</strong>
-            </div>
-          </div>
-        ))
+        <Stack spacing={0.5}>
+          {rows.map((r) => (
+            <Stack
+              key={r.label}
+              direction="row"
+             
+              spacing={1}
+              sx={{ alignItems: "center",
+                px: 1,
+                py: 0.5,
+                borderRadius: 1,
+                bgcolor: r.price ? "surface.action" : "transparent",
+                fontWeight: r.price ? 700 : 400,
+              }}
+            >
+              <Box component="i" aria-hidden sx={{ width: 4, height: 18, borderRadius: 1, bgcolor: r.color, flexShrink: 0 }} />
+              <Typography variant="caption" sx={{ flex: 1, color: "text.secondary" }}>
+                {r.label}
+              </Typography>
+              <Num sx={{ fontSize: "0.8125rem", fontWeight: 600 }}>{fmtPx(r.val)}</Num>
+            </Stack>
+          ))}
+        </Stack>
       ) : (
         <EmptyState text="No structure levels returned." />
       )}
-    </div>
+    </Box>
   );
 }
 
 const COMPONENT_NAMES: Record<string, string> = { mtf: "MTF", orderbook: "Order book" };
 
+function directionColor(bias: string | null | undefined): string {
+  const cls = biasClass(bias);
+  if (cls === "buy") return "success.main";
+  if (cls === "sell") return "error.main";
+  return "text.primary";
+}
+
 export function ConfluenceCard({ market }: Readonly<{ market: Market | null }>) {
   const c = market?.confluence;
   if (!c || !isNum(c.score)) {
     return (
-      <Card title="Confluence" icon="gauge">
-        <EmptyState
-          text="Weighted score from MTF, momentum, structure, flow, regime, book and liquidity."
-          icon="gauge"
-        />
-      </Card>
+      <SectionCard title="Confluence" icon={<SpeedOutlined />}>
+        <EmptyState text="Weighted score from MTF, momentum, structure, flow, regime, book and liquidity." icon={<SpeedOutlined />} />
+      </SectionCard>
     );
   }
   const score = Number(c.score);
   const comps = Object.entries(c.components ?? {}).filter(([k]) => k !== "note_chop");
   const needle = ((Math.max(-10, Math.min(10, score)) + 10) / 20) * 100;
   return (
-    <Card title="Confluence" icon="gauge" right={<BiasPill bias={c.bias} />}>
-      <div className={`kpi-value ${biasClass(c.bias)}`}>
+    <SectionCard title="Confluence" icon={<SpeedOutlined />} right={<BiasPill bias={c.bias} />}>
+      <Box sx={[monoSx, { fontSize: "1.5rem", fontWeight: 700, color: directionColor(c.bias) }]}>
         {fmtSigned(score)}
-        <span className="unit">/ 10 · confidence {fmtConf(c.confidence) ?? "—"}</span>
-      </div>
-      <div className="gauge" title="Neutral zone −2.5 to +2.5">
-        <div className="zone" />
-        <div className="needle" style={{ left: `${needle}%` }} />
-      </div>
-      <div className="gauge-scale">
-        <span>−10 Sell</span>
-        <span>Neutral</span>
-        <span>Buy +10</span>
-      </div>
-      <div className="bars">
+        <Box component="span" sx={{ fontSize: "0.75rem", color: "text.secondary", fontWeight: 500, ml: 0.75 }}>
+          / 10 · confidence {fmtConf(c.confidence) ?? <Na />}
+        </Box>
+      </Box>
+      <Tooltip title="Neutral zone −2.5 to +2.5">
+        <Box sx={{ position: "relative", height: 8, borderRadius: 4, bgcolor: "divider", mt: 1.5, mb: 0.5 }}>
+          <Box sx={{ position: "absolute", left: "37.5%", width: "25%", top: 0, bottom: 0, bgcolor: "grey.500", opacity: 0.35 }} />
+          <Box
+            sx={{
+              position: "absolute",
+              left: `${String(needle)}%`,
+              top: -4,
+              width: 3,
+              height: 16,
+              ml: "-1.5px",
+              borderRadius: 1,
+              bgcolor: "text.primary",
+            }}
+          />
+        </Box>
+      </Tooltip>
+      <Stack direction="row" sx={{ justifyContent: "space-between", color: "text.secondary", mb: 1.5 }}>
+        <Typography variant="caption">−10 Sell</Typography>
+        <Typography variant="caption">Neutral</Typography>
+        <Typography variant="caption">Buy +10</Typography>
+      </Stack>
+      <Stack spacing={0.75}>
         {comps.map(([k, v]) => {
-          const n = Number(v) || 0;
+          const val = Number(v) || 0;
+          const width = Math.min(50, (Math.abs(val) / 3) * 50);
           return (
-            <div className="bar-row" key={k}>
-              <span className="name">{COMPONENT_NAMES[k] ?? k}</span>
-              <span className="bar-track">
-                <i className={`bar-fill ${n >= 0 ? "pos" : "neg"}`} style={{ width: `${Math.min(50, (Math.abs(n) / 3) * 50)}%` }} />
-              </span>
-              <span className="val">{fmtSigned(n)}</span>
-            </div>
+            <Box key={k} sx={{ display: "grid", gridTemplateColumns: "88px minmax(0, 1fr) 44px", alignItems: "center", gap: 1 }}>
+              <Typography variant="caption" noWrap sx={{ color: "text.secondary", textTransform: "capitalize" }}>
+                {COMPONENT_NAMES[k] ?? k}
+              </Typography>
+              <Box sx={{ position: "relative", height: 6, bgcolor: "action.hover", borderRadius: 3 }}>
+                <Box sx={{ position: "absolute", left: "50%", top: -2, bottom: -2, width: "1px", bgcolor: "divider" }} />
+                <Box
+                  sx={{
+                    position: "absolute",
+                    top: 0,
+                    bottom: 0,
+                    borderRadius: 3,
+                    width: `${String(width)}%`,
+                    left: val >= 0 ? "50%" : `${String(50 - width)}%`,
+                    bgcolor: val >= 0 ? "success.main" : "error.main",
+                  }}
+                />
+              </Box>
+              <Num sx={{ fontSize: "0.75rem", textAlign: "right" }}>{fmtSigned(val)}</Num>
+            </Box>
           );
         })}
-      </div>
-    </Card>
+      </Stack>
+    </SectionCard>
+  );
+}
+
+function Dl({ children }: Readonly<{ children: ReactNode }>) {
+  return (
+    <Box component="dl" sx={{ m: 0, display: "grid", gridTemplateColumns: { xs: "minmax(0, 1fr)", sm: "repeat(2, minmax(0, 1fr))" }, gap: 1.5 }}>
+      {children}
+    </Box>
+  );
+}
+
+function Dd({ label, children }: Readonly<{ label: string; children: ReactNode }>) {
+  return (
+    <Box sx={{ minWidth: 0 }}>
+      <Typography component="dt" variant="caption" sx={{ color: "text.secondary", display: "block" }}>
+        {label}
+      </Typography>
+      <Box component="dd" sx={{ m: 0, mt: 0.25, typography: "body2", fontWeight: 500, display: "flex", alignItems: "center", gap: 0.75, flexWrap: "wrap" }}>
+        {children}
+      </Box>
+    </Box>
+  );
+}
+
+function Sub({ children }: Readonly<{ children: ReactNode }>) {
+  return (
+    <Typography component="span" variant="caption" sx={{ color: "text.secondary" }}>
+      {children}
+    </Typography>
+  );
+}
+
+function Summary({ text }: Readonly<{ text?: string }>) {
+  if (!text) return null;
+  return (
+    <Typography variant="caption" component="p" sx={{ color: "text.secondary", mt: 1.5, mb: 0, pt: 1.5, borderTop: 1, borderColor: "divider" }}>
+      {text}
+    </Typography>
   );
 }
 
@@ -103,67 +214,40 @@ export function SetupCard({ market }: Readonly<{ market: Market | null }>) {
   const s = market?.setup;
   if (!s?.type) {
     return (
-      <Card title="Setup & timeframes" icon="layers">
-        <EmptyState text="Chop · mean-revert · breakout · trend continuation, plus 15m → 1d alignment." icon="layers" />
-      </Card>
+      <SectionCard title="Setup & timeframes" icon={<LayersOutlined />}>
+        <EmptyState text="Chop, mean revert, breakout or trend continuation, plus 15m to 1d alignment." icon={<LayersOutlined />} />
+      </SectionCard>
     );
   }
   const frames = Object.entries(market?.mtf_local?.timeframes ?? {});
   const pill =
-    s.trade_allowed === false ? (
-      <span className="pill warn">
-        <span className="g">!</span>No trade
-      </span>
-    ) : (
-      <span className="pill info">
-        <span className="g">✓</span>Trade allowed
-      </span>
-    );
+    s.trade_allowed === false ? <Pill glyph="!" label="No trade" tone="warn" /> : <Pill glyph="✓" label="Trade allowed" tone="info" />;
+  const alignment = humanize(s.mtf_alignment ?? market?.mtf_local?.alignment);
   return (
-    <Card title="Setup & timeframes" icon="layers" right={pill}>
-      <dl className="dl">
-        <div>
-          <dt>Type</dt>
-          <dd>{humanize(s.type)}</dd>
-        </div>
-        <div>
-          <dt>Prefers</dt>
-          <dd>{s.prefer_bias ? <BiasPill bias={s.prefer_bias} /> : <Na reason="No preference" />}</dd>
-        </div>
-        <div>
-          <dt>ADX</dt>
-          <dd>{isNum(s.adx) ? Number(s.adx).toFixed(1) : <Na />}</dd>
-        </div>
-        <div>
-          <dt>MTF alignment</dt>
-          <dd>{humanize(s.mtf_alignment ?? market?.mtf_local?.alignment) || <Na />}</dd>
-        </div>
-      </dl>
+    <SectionCard title="Setup & timeframes" icon={<LayersOutlined />} right={pill}>
+      <Dl>
+        <Dd label="Type">{humanize(s.type)}</Dd>
+        <Dd label="Prefers">{s.prefer_bias ? <BiasPill bias={s.prefer_bias} /> : <Na reason="No preference" />}</Dd>
+        <Dd label="ADX">
+          <V value={fmtFixed(s.adx, 1)} />
+        </Dd>
+        <Dd label="MTF alignment">{alignment || <Na />}</Dd>
+      </Dl>
       {frames.length ? (
-        <div className="mtf-list">
+        <Stack spacing={0.75} sx={{ mt: 2 }}>
           {frames.map(([tf, f]) => (
-            <div className="mtf-row" key={tf}>
-              <span className="tf">{tf}</span>
-              <span className="meta">
-                RSI {isNum(f.rsi) ? Number(f.rsi).toFixed(0) : "—"} · MACD {f.macd ?? "—"} · ADX{" "}
-                {isNum(f.adx) ? Number(f.adx).toFixed(0) : "—"}
-              </span>
+            <Stack key={tf} direction="row" spacing={1} sx={{ alignItems: "center" }}>
+              <Num sx={{ width: 36, fontWeight: 600, fontSize: "0.8125rem" }}>{tf}</Num>
+              <Typography variant="caption" sx={{ flex: 1, color: "text.secondary", minWidth: 0 }} noWrap>
+                RSI <V value={fmtFixed(f.rsi, 0)} /> · MACD {f.macd ?? <Na />} · ADX <V value={fmtFixed(f.adx, 0)} />
+              </Typography>
               <TrendPill trend={f.trend} />
-            </div>
+            </Stack>
           ))}
-        </div>
+        </Stack>
       ) : null}
-      {s.summary ? <div className="summary-line">{s.summary}</div> : null}
-    </Card>
-  );
-}
-
-function Dd({ label, children }: Readonly<{ label: string; children: React.ReactNode }>) {
-  return (
-    <div>
-      <dt>{label}</dt>
-      <dd>{children}</dd>
-    </div>
+      <Summary text={s.summary} />
+    </SectionCard>
   );
 }
 
@@ -171,49 +255,47 @@ export function FlowCard({ market }: Readonly<{ market: Market | null }>) {
   const f = market?.flow;
   if (!f?.available) {
     return (
-      <Card title="Whales & derivatives" icon="waves">
+      <SectionCard title="Whales & derivatives" icon={<WavesOutlined />}>
         <EmptyState
           text={
             market
-              ? "No futures data for this pair (spot-only or unlisted on Binance Futures)."
+              ? "No futures data for this pair (spot only, or not listed on Binance Futures)."
               : "Top-trader positioning, funding, open interest and taker flow."
           }
-          icon="waves"
+          icon={<WavesOutlined />}
         />
-      </Card>
+      </SectionCard>
     );
   }
   return (
-    <Card title="Whales & derivatives" icon="waves">
-      <dl className="dl">
+    <SectionCard title="Whales & derivatives" icon={<WavesOutlined />}>
+      <Dl>
         <Dd label="Whales (top traders)">
-          <BiasPill bias={f.whale_bias} />{" "}
-          <span className="card-sub">{isNum(f.whale_long_pct) ? `${f.whale_long_pct}% long` : ""}</span>
+          <BiasPill bias={f.whale_bias} />
+          {isNum(f.whale_long_pct) ? <Sub>{f.whale_long_pct}% long</Sub> : null}
         </Dd>
         <Dd label="Retail">
-          <BiasPill bias={f.retail_bias} />{" "}
-          <span className="card-sub">{isNum(f.retail_long_pct) ? `${f.retail_long_pct}% long` : ""}</span>
+          <BiasPill bias={f.retail_bias} />
+          {isNum(f.retail_long_pct) ? <Sub>{f.retail_long_pct}% long</Sub> : null}
         </Dd>
         <Dd label="Funding">
-          {f.funding_bias ?? "—"}{" "}
-          <span className="card-sub">{isNum(f.funding_apr_est) ? `${f.funding_apr_est}% APR` : ""}</span>
+          {f.funding_bias ?? <Na />}
+          {isNum(f.funding_apr_est) ? <Sub>{f.funding_apr_est}% APR</Sub> : null}
         </Dd>
         <Dd label="Open interest Δ">
           <V value={fmtPct(f.oi_change_pct, 2)} />
         </Dd>
         <Dd label="Taker flow">{f.taker_bias ?? <Na />}</Dd>
-        <Dd label="OI · price">
-          <span title={f.oi_price_signal}>{f.oi_price_signal ?? <Na />}</span>
-        </Dd>
+        <Dd label="OI · price">{f.oi_price_signal ?? <Na />}</Dd>
         <Dd label="Basis">
           <V value={fmtPct(f.basis_pct, 3)} />
         </Dd>
         <Dd label="24h change">
           <V value={fmtPct(f.price_change_24h_pct, 2)} />
         </Dd>
-      </dl>
-      {f.summary ? <div className="summary-line">{f.summary}</div> : null}
-    </Card>
+      </Dl>
+      <Summary text={f.summary} />
+    </SectionCard>
   );
 }
 
@@ -222,12 +304,9 @@ export function LiquidityCard({ market }: Readonly<{ market: Market | null }>) {
   const book = market?.orderbook ?? {};
   if (!liq.available && !book.available) {
     return (
-      <Card title="Liquidity & order book" icon="droplet">
-        <EmptyState
-          text="Estimated liquidation clusters (long cascade vs short squeeze) and depth imbalance."
-          icon="droplet"
-        />
-      </Card>
+      <SectionCard title="Liquidity & order book" icon={<WaterDropOutlined />}>
+        <EmptyState text="Estimated liquidation clusters (long cascade vs short squeeze) and depth imbalance." icon={<WaterDropOutlined />} />
+      </SectionCard>
     );
   }
   const nl = liq.nearest_long_liq ?? {};
@@ -235,22 +314,24 @@ export function LiquidityCard({ market }: Readonly<{ market: Market | null }>) {
   const lc = liq.cascade?.long_cascade_trigger ?? {};
   const sq = liq.cascade?.short_squeeze_trigger ?? {};
   return (
-    <Card title="Liquidity & order book" icon="droplet">
-      <dl className="dl">
+    <SectionCard title="Liquidity & order book" icon={<WaterDropOutlined />}>
+      <Dl>
         <Dd label="Liquidity bias">{liq.bias ?? <Na />}</Dd>
         <Dd label="Longs / shorts">
-          {isNum(liq.long_share_pct) ? `${liq.long_share_pct}% / ${liq.short_share_pct}%` : <Na />}
+          {isNum(liq.long_share_pct) ? <Num>{`${String(liq.long_share_pct)}% / ${String(liq.short_share_pct)}%`}</Num> : <Na />}
         </Dd>
-        <Dd label="Nearest long-liq">
-          <V value={fmtPx(nl.price)} /> <span className="card-sub">{isNum(nl.distance_pct) ? `${nl.distance_pct}%` : ""}</span>
+        <Dd label="Nearest long liquidation">
+          <V value={fmtPx(nl.price)} />
+          {isNum(nl.distance_pct) ? <Sub>{nl.distance_pct}%</Sub> : null}
         </Dd>
-        <Dd label="Nearest short-liq">
-          <V value={fmtPx(ns.price)} /> <span className="card-sub">{isNum(ns.distance_pct) ? `+${ns.distance_pct}%` : ""}</span>
+        <Dd label="Nearest short liquidation">
+          <V value={fmtPx(ns.price)} />
+          {isNum(ns.distance_pct) ? <Sub>+{ns.distance_pct}%</Sub> : null}
         </Dd>
         <Dd label="Cascade trigger">
           {isNum(lc.price) ? (
             <>
-              {fmtPx(lc.price)} <span className="card-sub">{lc.move_pct}%</span>
+              <Num>{fmtPx(lc.price)}</Num> <Sub>{lc.move_pct}%</Sub>
             </>
           ) : (
             <Na />
@@ -259,18 +340,91 @@ export function LiquidityCard({ market }: Readonly<{ market: Market | null }>) {
         <Dd label="Squeeze trigger">
           {isNum(sq.price) ? (
             <>
-              {fmtPx(sq.price)} <span className="card-sub">+{sq.move_pct}%</span>
+              <Num>{fmtPx(sq.price)}</Num> <Sub>+{sq.move_pct}%</Sub>
             </>
           ) : (
             <Na />
           )}
         </Dd>
-        <Dd label="Order book">{book.available ? (book.bias ?? "—") : <Na reason="Depth unavailable" />}</Dd>
+        <Dd label="Order book">{book.available ? (book.bias ?? <Na />) : <Na reason="Depth unavailable" />}</Dd>
         <Dd label="Book imbalance">
-          {book.available && isNum(book.imbalance) ? fmtPct(book.imbalance * 100, 1) : <Na />}
+          {book.available && isNum(book.imbalance) ? <Num>{fmtPct(book.imbalance * 100, 1)}</Num> : <Na />}
         </Dd>
-      </dl>
-      {liq.summary ? <div className="summary-line">{liq.summary}</div> : null}
-    </Card>
+      </Dl>
+      <Summary text={liq.summary} />
+    </SectionCard>
+  );
+}
+
+const WINDOW_LABEL: Record<string, string> = { "30d_1h": "30 days of 1h", "90d_1d": "90 days of 1d" };
+
+function StatCell({ stat, field }: Readonly<{ stat: CorrelationStat | undefined; field: "correlation" | "beta" }>) {
+  if (!stat?.available) return <Na reason={stat?.error ?? "Not computed"} />;
+  const v = stat[field];
+  const text = field === "correlation" ? fmtSigned(v, 2) : fmtFixed(v, 2);
+  return <V value={text} reason={stat.error ?? "Not enough overlapping candles"} />;
+}
+
+/** Correlation and beta to BTC and ETH from the analysis snapshot (WL-036). */
+export function CorrelationCard({ market }: Readonly<{ market: Market | null }>) {
+  if (!market) return null;
+  const c = market.correlation;
+  const icon = <CompareArrows />;
+  if (!c) {
+    return (
+      <SectionCard title="Correlation to BTC and ETH" icon={icon}>
+        <EmptyState text="This analysis did not include correlation data." icon={icon} />
+      </SectionCard>
+    );
+  }
+  if (!c.available) {
+    return (
+      <SectionCard title="Correlation to BTC and ETH" icon={icon} right={<Na reason={c.error ?? "Not available"} />}>
+        <EmptyState text={`Correlation unavailable${c.error ? `: ${c.error}` : "."}`} icon={icon} />
+      </SectionCard>
+    );
+  }
+  const windows = ["30d_1h", "90d_1d"];
+  return (
+    <SectionCard title="Correlation to BTC and ETH" icon={icon} noPadding>
+      <Box sx={{ overflowX: "auto" }}>
+        <Table size="small" sx={{ minWidth: 420 }}>
+          <TableHead>
+            <TableRow>
+              <TableCell>Window</TableCell>
+              <TableCell align="right">BTC corr</TableCell>
+              <TableCell align="right">BTC beta</TableCell>
+              <TableCell align="right">ETH corr</TableCell>
+              <TableCell align="right">ETH beta</TableCell>
+            </TableRow>
+          </TableHead>
+          <TableBody>
+            {windows.map((key) => {
+              const w = c.windows?.[key];
+              return (
+                <TableRow key={key}>
+                  <TableCell>{WINDOW_LABEL[key] ?? key}</TableCell>
+                  <TableCell align="right">
+                    <StatCell stat={w?.btc} field="correlation" />
+                  </TableCell>
+                  <TableCell align="right">
+                    <StatCell stat={w?.btc} field="beta" />
+                  </TableCell>
+                  <TableCell align="right">
+                    <StatCell stat={w?.eth} field="correlation" />
+                  </TableCell>
+                  <TableCell align="right">
+                    <StatCell stat={w?.eth} field="beta" />
+                  </TableCell>
+                </TableRow>
+              );
+            })}
+          </TableBody>
+        </Table>
+      </Box>
+      <Typography variant="caption" component="p" sx={{ color: "text.secondary", px: 2, py: 1.25, m: 0 }}>
+        Pearson correlation of log returns (−1 to +1) and beta (how far the pair moves per 1% of the benchmark).
+      </Typography>
+    </SectionCard>
   );
 }

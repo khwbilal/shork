@@ -77,6 +77,7 @@ export type Market = {
   mtf_local?: { alignment?: string; timeframes?: Record<string, MtfFrame> };
   setup?: Setup;
   confluence?: Confluence;
+  correlation?: Correlation;
   recorded_signal_id?: string;
 };
 
@@ -103,7 +104,127 @@ export type HealthResponse = {
   tradingview_ready: boolean;
 };
 
-export type SymbolResult = { symbol: string; exchange: string; tv_symbol: string; kind: string; label: string };
+export type InstrumentType = "crypto" | "stock" | "etf" | "commodity" | "fx" | "index" | "premarket";
+
+export type SymbolResult = {
+  symbol: string;
+  exchange: string;
+  tv_symbol: string;
+  kind: string;
+  label: string;
+  /** From the instrument catalogue (WL-044); null when only the ticker is known. */
+  name?: string | null;
+  type?: InstrumentType | string;
+  market?: string | null;
+  aliases?: string;
+};
+
+/** Correlation and beta of the symbol's log returns to one benchmark (WL-036). */
+export type CorrelationStat = {
+  available: boolean;
+  correlation?: number | null;
+  beta?: number | null;
+  overlap_pct?: number | null;
+  samples?: number | null;
+  error?: string | null;
+};
+
+export type CorrelationWindow = {
+  interval: string;
+  days: number;
+  candles: number;
+  btc: CorrelationStat;
+  eth: CorrelationStat;
+};
+
+export type Correlation = {
+  available: boolean;
+  symbol?: string;
+  market?: string | null;
+  /** Keys: 30d_1h, 90d_1d. */
+  windows?: Record<string, CorrelationWindow>;
+  summary?: string | null;
+  error?: string | null;
+};
+
+export type PulseTf = "1M" | "1w" | "1d" | "1h" | "15m";
+
+export type PulseCell = {
+  tf: PulseTf;
+  available: boolean;
+  price?: number | null;
+  trend?: "up" | "down" | "flat" | null;
+  rsi?: number | null;
+  ema20?: number | null;
+  ema50?: number | null;
+  price_vs_ema20?: "above" | "below" | null;
+  change_pct?: number | null;
+  bias?: Bias | null;
+  candle_open?: string | null;
+  error?: string | null;
+};
+
+export type PulseSymbol = {
+  symbol: string;
+  available: boolean;
+  price?: number | null;
+  change_24h_pct?: number | null;
+  error?: string | null;
+  timeframes: PulseCell[];
+};
+
+export type PulseResponse = {
+  symbols: PulseSymbol[];
+  timeframes: string[];
+  rule: string;
+  generated_at: string;
+};
+
+export type CalendarKind = "macro" | "earnings" | "crypto" | "binance";
+
+export type CalendarEvent = {
+  id: number;
+  source: string;
+  kind: CalendarKind;
+  title: string;
+  /** ISO 8601 in PKT (+05:00). */
+  starts_at: string;
+  all_day: boolean;
+  /** Earnings: before_open or after_close. */
+  session?: string | null;
+  impact?: "high" | "medium" | "low" | null;
+  country?: string | null;
+  ticker?: string | null;
+  /** TradingView symbols Binance lists for the ticker, such as BINANCE:METAUSDT.P. */
+  instrument_symbols: string[];
+  forecast?: string | null;
+  previous?: string | null;
+  actual?: string | null;
+  url?: string | null;
+  fetched_at: string;
+};
+
+export type CalendarSource = {
+  name: string;
+  available?: boolean | null;
+  error?: string | null;
+  events?: number | null;
+  fetched_at?: string | null;
+};
+
+export type CalendarResponse = { events: CalendarEvent[]; sources: CalendarSource[] };
+
+export type JobStatus = {
+  job: string;
+  schedule: string;
+  started_at?: string | null;
+  finished_at?: string | null;
+  exit_code?: number | null;
+  message?: string | null;
+  next_run?: string | null;
+};
+
+export type JobsResponse = { jobs: JobStatus[] };
 
 export type WatchlistRow = {
   symbol: string;
@@ -201,6 +322,10 @@ export const api = {
     request<{ results: SymbolResult[] }>(
       `/api/symbols/search?q=${encodeURIComponent(q)}&exchange=${encodeURIComponent(exchange)}&limit=20`,
     ),
+  pulse: () => request<PulseResponse>("/api/pulse"),
+  calendar: (days: number, kind: CalendarKind | "") =>
+    request<CalendarResponse>(`/api/calendar?days=${String(days)}&kind=${encodeURIComponent(kind)}`),
+  jobs: () => request<JobsResponse>("/api/jobs"),
   scoreWatchlist: (timeframe: string) =>
     request<WatchlistResponse>(`/api/watchlist/score?timeframe=${encodeURIComponent(timeframe)}`),
   journal: () => request<{ entries: JournalEntry[]; stats: Stats }>("/api/journal?limit=100"),

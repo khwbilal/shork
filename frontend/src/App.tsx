@@ -1,9 +1,13 @@
+import Box from "@mui/material/Box";
+import { useColorScheme } from "@mui/material/styles";
+import useMediaQuery from "@mui/material/useMediaQuery";
 import { useCallback, useEffect, useState } from "react";
 import { api, type HealthResponse } from "./api";
 import { FeedbackProvider } from "./components/feedback";
-import SearchPalette from "./components/SearchPalette";
-import { PAGES, Rail, TIMEFRAMES, TopBar, type PageKey } from "./components/Shell";
+import { Rail, TopBar } from "./components/Shell";
+import { PAGES, TIMEFRAMES, type PageKey } from "./lib/nav";
 import { readPref, readRecents, rememberRecent, writePref } from "./lib/storage";
+import CalendarPage from "./pages/Calendar";
 import Desk from "./pages/Desk";
 import Journal from "./pages/Journal";
 import Signals from "./pages/Signals";
@@ -12,10 +16,6 @@ import Watchlist from "./pages/Watchlist";
 function pageFromHash(): PageKey {
   const name = window.location.hash.replace(/^#\/?/, "").split("/")[0];
   return name in PAGES ? (name as PageKey) : "desk";
-}
-
-function systemDark(): boolean {
-  return window.matchMedia("(prefers-color-scheme: dark)").matches;
 }
 
 function initialTimeframe(): string {
@@ -30,11 +30,8 @@ export default function App() {
   const [exchange, setExchange] = useState(recent?.exchange ?? "BINANCE");
   const [tvSymbol, setTvSymbol] = useState(recent?.tv_symbol ?? "BINANCE:SOLUSDT");
   const [timeframe, setTimeframe] = useState(initialTimeframe);
-  const [theme, setTheme] = useState<string | null>(() => readPref("cca_theme"));
-  const [prefersDark, setPrefersDark] = useState(systemDark);
   const [folded, setFolded] = useState(() => readPref("cca_rail_folded") === "1");
   const [navOpen, setNavOpen] = useState(false);
-  const [paletteOpen, setPaletteOpen] = useState(false);
   const [health, setHealth] = useState<HealthResponse | null>(null);
   const [healthError, setHealthError] = useState(false);
   const [journalOpen, setJournalOpen] = useState(0);
@@ -42,19 +39,9 @@ export default function App() {
   const [journalVersion, setJournalVersion] = useState(0);
   const [signalsVersion, setSignalsVersion] = useState(0);
 
-  const dark = theme === "dark" || (theme !== "light" && prefersDark);
-
-  useEffect(() => {
-    if (theme === "light" || theme === "dark") document.documentElement.dataset.theme = theme;
-    else delete document.documentElement.dataset.theme;
-  }, [theme]);
-
-  useEffect(() => {
-    const mq = window.matchMedia("(prefers-color-scheme: dark)");
-    const onChange = () => setPrefersDark(mq.matches);
-    mq.addEventListener("change", onChange);
-    return () => mq.removeEventListener("change", onChange);
-  }, []);
+  const desktop = useMediaQuery((t) => t.breakpoints.up("md"), { noSsr: true });
+  const { mode, systemMode } = useColorScheme();
+  const dark = (mode === "system" ? systemMode : mode) === "dark";
 
   useEffect(() => {
     const onHash = () => {
@@ -63,17 +50,6 @@ export default function App() {
     };
     window.addEventListener("hashchange", onHash);
     return () => window.removeEventListener("hashchange", onHash);
-  }, []);
-
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => {
-      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "k") {
-        e.preventDefault();
-        setPaletteOpen((o) => !o);
-      }
-    };
-    document.addEventListener("keydown", onKey);
-    return () => document.removeEventListener("keydown", onKey);
   }, []);
 
   useEffect(() => {
@@ -101,13 +77,21 @@ export default function App() {
     window.location.hash = `#/${p}`;
   };
 
+  const openOnDesk = (s: string, ex?: string, tv?: string) => {
+    pickPair(s, ex, tv);
+    goTo("desk");
+  };
+
   const onJournalStats = useCallback((s: { open?: number }) => setJournalOpen(s.open ?? 0), []);
   const onSignalStats = useCallback((s: { open?: number }) => setSignalsOpen(s.open ?? 0), []);
 
   return (
     <FeedbackProvider>
-      <div className={`shell${folded ? " folded" : ""}${navOpen ? " nav-open" : ""}`}>
+      <Box sx={{ display: "flex", minHeight: "100vh", bgcolor: "background.default" }}>
         <Rail
+          desktop={desktop}
+          mobileOpen={navOpen}
+          onCloseMobile={() => setNavOpen(false)}
           page={page}
           health={health}
           healthError={healthError}
@@ -119,67 +103,51 @@ export default function App() {
             setFolded(!folded);
           }}
         />
-        <div className="scrim" onClick={() => setNavOpen(false)} />
-        <div className="main">
+        <Box sx={{ flex: 1, minWidth: 0, display: "flex", flexDirection: "column" }}>
           <TopBar
             page={page}
             symbol={symbol}
             exchange={exchange}
             timeframe={timeframe}
-            dark={dark}
+            desktop={desktop}
             onMenu={() => setNavOpen(true)}
-            onSearch={() => setPaletteOpen(true)}
             onExchange={(ex) => pickPair(symbol, ex)}
             onTimeframe={(tf) => {
               writePref("cca_tf", tf);
               setTimeframe(tf);
             }}
-            onToggleTheme={() => {
-              const next = dark ? "light" : "dark";
-              writePref("cca_theme", next);
-              setTheme(next);
-            }}
+            onPickPair={openOnDesk}
+            onPickPage={goTo}
           />
           {/* Pages stay mounted so the desk keeps its plan and chat while you browse. */}
-          <section className="page" hidden={page !== "desk"}>
-            <Desk
-              symbol={symbol}
-              exchange={exchange}
-              tvSymbol={tvSymbol}
-              timeframe={timeframe}
-              dark={dark}
-              onSignalRecorded={() => setSignalsVersion((v) => v + 1)}
-              onJournalChanged={() => setJournalVersion((v) => v + 1)}
-            />
-          </section>
-          <section className="page" hidden={page !== "watchlist"}>
-            <Watchlist
-              timeframe={timeframe}
-              onOpen={(s) => {
-                pickPair(s, "BINANCE");
-                goTo("desk");
-              }}
-            />
-          </section>
-          <section className="page" hidden={page !== "journal"}>
-            <Journal active={page === "journal"} version={journalVersion} onStats={onJournalStats} />
-          </section>
-          <section className="page" hidden={page !== "signals"}>
-            <Signals active={page === "signals"} version={signalsVersion} onStats={onSignalStats} />
-          </section>
-        </div>
-      </div>
-      {paletteOpen ? (
-        <SearchPalette
-          exchange={exchange}
-          onClose={() => setPaletteOpen(false)}
-          onPickPair={(s, ex, tv) => {
-            pickPair(s, ex, tv);
-            goTo("desk");
-          }}
-          onPickPage={goTo}
-        />
-      ) : null}
+          <Box component="main" sx={{ p: { xs: 2, md: 3 }, minWidth: 0, flex: 1 }}>
+            <Box hidden={page !== "desk"}>
+              <Desk
+                symbol={symbol}
+                exchange={exchange}
+                tvSymbol={tvSymbol}
+                timeframe={timeframe}
+                dark={dark}
+                active={page === "desk"}
+                onSignalRecorded={() => setSignalsVersion((v) => v + 1)}
+                onJournalChanged={() => setJournalVersion((v) => v + 1)}
+              />
+            </Box>
+            <Box hidden={page !== "watchlist"}>
+              <Watchlist timeframe={timeframe} onOpen={(s) => openOnDesk(s, "BINANCE")} />
+            </Box>
+            <Box hidden={page !== "calendar"}>
+              <CalendarPage active={page === "calendar"} onOpenPair={openOnDesk} />
+            </Box>
+            <Box hidden={page !== "journal"}>
+              <Journal active={page === "journal"} version={journalVersion} onStats={onJournalStats} />
+            </Box>
+            <Box hidden={page !== "signals"}>
+              <Signals active={page === "signals"} version={signalsVersion} onStats={onSignalStats} />
+            </Box>
+          </Box>
+        </Box>
+      </Box>
     </FeedbackProvider>
   );
 }

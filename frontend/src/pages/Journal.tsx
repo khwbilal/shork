@@ -1,11 +1,36 @@
+import Alert from "@mui/material/Alert";
+import Button from "@mui/material/Button";
+import Card from "@mui/material/Card";
+import Chip from "@mui/material/Chip";
+import IconButton from "@mui/material/IconButton";
+import Skeleton from "@mui/material/Skeleton";
+import Stack from "@mui/material/Stack";
+import TableBody from "@mui/material/TableBody";
+import TableCell from "@mui/material/TableCell";
+import TableHead from "@mui/material/TableHead";
+import TableRow from "@mui/material/TableRow";
+import Tooltip from "@mui/material/Tooltip";
+import Box from "@mui/material/Box";
+import Typography from "@mui/material/Typography";
+import Close from "@mui/icons-material/Close";
+import DeleteOutlined from "@mui/icons-material/DeleteOutlined";
+import MenuBookOutlined from "@mui/icons-material/MenuBookOutlined";
+import Refresh from "@mui/icons-material/Refresh";
 import { useCallback, useEffect, useState } from "react";
 import { api, type JournalEntry, type Stats } from "../api";
 import { useFeedback } from "../components/feedback";
-import Icon from "../components/Icon";
-import { BiasPill, Button, EmptyState, KpiStrip, Na, PageHeader, StatusPill, V } from "../components/ui";
+import { ActionButton, BiasPill, DataTable, EmptyState, KpiStrip, Na, Num, PageHeader, StatusPill, V } from "../components/ui";
 import { fmtPx, fmtSigned, fmtWhen, humanize, isNum } from "../lib/format";
 
 const CLOSE_LABEL: Record<string, string> = { win: "win", loss: "loss", be: "breakeven" };
+
+function RowButton({ label, onClick }: Readonly<{ label: string; onClick: () => void }>) {
+  return (
+    <Button size="small" variant="outlined" color="inherit" sx={{ borderColor: "divider", minWidth: 0, px: 1.25 }} onClick={onClick}>
+      {label}
+    </Button>
+  );
+}
 
 export default function Journal({
   active,
@@ -80,78 +105,103 @@ export default function Journal({
   }
 
   let table: React.ReactNode;
-  if (error) table = <EmptyState text={`Journal unavailable: ${error}`} />;
-  else if (!entries) table = <EmptyState text="Loading…" icon="clock" />;
+  if (error)
+    table = (
+      <Alert severity="warning" sx={{ m: 2 }}>
+        Journal unavailable: {error}
+      </Alert>
+    );
+  else if (!entries)
+    table = (
+      <Box sx={{ p: 2 }}>
+        {[0, 1, 2].map((i) => (
+          <Skeleton key={i} height={40} />
+        ))}
+      </Box>
+    );
   else if (!entries.length)
-    table = <EmptyState text="Nothing logged yet. Run a full analysis on the desk, then use Log to journal." icon="book" />;
+    table = <EmptyState text="Nothing logged yet. Run a full analysis on the desk, then use Log to journal." icon={<MenuBookOutlined />} />;
   else
     table = (
-      <table className="data">
-        <thead>
-          <tr>
-            <th>Logged</th>
-            <th>Pair</th>
-            <th>Side</th>
-            <th>Setup</th>
-            <th className="num">Entry</th>
-            <th className="num">Stop</th>
-            <th className="num">Target</th>
-            <th>Status</th>
-            <th className="num">R</th>
-            <th />
-          </tr>
-        </thead>
-        <tbody>
+      <DataTable minWidth={980}>
+        <TableHead>
+          <TableRow>
+            <TableCell>Logged</TableCell>
+            <TableCell>Pair</TableCell>
+            <TableCell>Side</TableCell>
+            <TableCell>Setup</TableCell>
+            <TableCell align="right">Entry</TableCell>
+            <TableCell align="right">Stop</TableCell>
+            <TableCell align="right">Target</TableCell>
+            <TableCell>Status</TableCell>
+            <TableCell align="right">R</TableCell>
+            <TableCell />
+          </TableRow>
+        </TableHead>
+        <TableBody>
           {entries.map((e) => {
             const open = e.status === "open";
             return (
-              <tr key={e.id}>
-                <td>
-                  <V value={fmtWhen(e.created_at)} />
-                </td>
-                <td className="sym">
-                  {e.symbol} <span className="card-sub">{e.timeframe}</span>
-                </td>
-                <td>
+              <TableRow key={e.id} hover>
+                <TableCell>
+                  <V value={fmtWhen(e.created_at)} mono={false} />
+                </TableCell>
+                <TableCell>
+                  <Num sx={{ fontWeight: 700 }}>{e.symbol}</Num>{" "}
+                  <Typography component="span" variant="caption" sx={{ color: "text.secondary" }}>
+                    {e.timeframe}
+                  </Typography>
+                </TableCell>
+                <TableCell>
                   <BiasPill bias={e.side} />
-                </td>
-                <td>{e.setup ? <span className="chip">{humanize(e.setup)}</span> : <Na />}</td>
-                <td className="num"><V value={fmtPx(e.entry)} /></td>
-                <td className="num"><V value={fmtPx(e.stop_loss)} /></td>
-                <td className="num"><V value={fmtPx(e.take_profit)} /></td>
-                <td>
+                </TableCell>
+                <TableCell>{e.setup ? <Chip size="small" label={humanize(e.setup)} /> : <Na />}</TableCell>
+                <TableCell align="right">
+                  <V value={fmtPx(e.entry)} />
+                </TableCell>
+                <TableCell align="right">
+                  <V value={fmtPx(e.stop_loss)} />
+                </TableCell>
+                <TableCell align="right">
+                  <V value={fmtPx(e.take_profit)} />
+                </TableCell>
+                <TableCell>
                   <StatusPill status={e.status} />
-                </td>
-                <td className="num">
+                </TableCell>
+                <TableCell align="right">
                   <V value={fmtSigned(e.r_multiple, 2)} reason={open ? "Still open" : "No exit price"} />
-                </td>
-                <td>
-                  <div className="row-actions">
+                </TableCell>
+                <TableCell align="right">
+                  <Stack direction="row" spacing={0.5} sx={{ justifyContent: "flex-end" }}>
                     {open ? (
                       <>
-                        <Button compact onClick={() => close(e.id, "win")}>Win</Button>
-                        <Button compact onClick={() => close(e.id, "loss")}>Loss</Button>
-                        <Button compact onClick={() => close(e.id, "be")}>BE</Button>
-                        <button className="btn compact" type="button" title="Skipped" onClick={() => close(e.id, "skipped")}>
-                          <Icon name="x" small />
-                        </button>
+                        <RowButton label="Win" onClick={() => void close(e.id, "win")} />
+                        <RowButton label="Loss" onClick={() => void close(e.id, "loss")} />
+                        <RowButton label="BE" onClick={() => void close(e.id, "be")} />
+                        <Tooltip title="Skipped">
+                          <IconButton size="small" aria-label="Mark as skipped" onClick={() => void close(e.id, "skipped")}>
+                            <Close fontSize="small" />
+                          </IconButton>
+                        </Tooltip>
                       </>
                     ) : (
-                      <button className="btn compact" type="button" title="Delete" onClick={() => remove(e.id)}>
-                        <Icon name="trash" small />
-                      </button>
+                      <Tooltip title="Delete">
+                        <IconButton size="small" aria-label="Delete entry" onClick={() => void remove(e.id)}>
+                          <DeleteOutlined fontSize="small" />
+                        </IconButton>
+                      </Tooltip>
                     )}
-                  </div>
-                </td>
-              </tr>
+                  </Stack>
+                </TableCell>
+              </TableRow>
             );
           })}
-        </tbody>
-      </table>
+        </TableBody>
+      </DataTable>
     );
 
   return (
-    <>
+    <Stack spacing={2}>
       <PageHeader
         title="Journal"
         subtitle={
@@ -160,9 +210,9 @@ export default function Journal({
             : "Trades you logged from the desk."
         }
         actions={
-          <Button icon="refresh" onClick={() => void refresh()}>
+          <ActionButton icon={<Refresh />} onClick={() => void refresh()}>
             Refresh
-          </Button>
+          </ActionButton>
         }
       />
       <KpiStrip
@@ -181,9 +231,7 @@ export default function Journal({
           },
         ]}
       />
-      <div className="card">
-        <div className="table-wrap">{table}</div>
-      </div>
-    </>
+      <Card>{table}</Card>
+    </Stack>
   );
 }

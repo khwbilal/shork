@@ -257,6 +257,15 @@ def fetch_coin_context(
         logger.warning("calendar read failed: %s", exc)
         context["upcoming_events"] = []
 
+    # Correlation and beta to BTC and ETH (WL-036); the original symbol keeps a .P suffix
+    try:
+        from .correlation import compute_correlation
+
+        context["correlation"] = compute_correlation(symbol)
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("correlation failed: %s", exc)
+        context["correlation"] = {"available": False, "error": str(exc)}
+
     return context
 
 
@@ -431,13 +440,21 @@ def condense_market_context(context: dict[str, Any]) -> dict[str, Any]:
         },
         "confluence": context.get("confluence"),
         "upcoming_events": context.get("upcoming_events"),
+        # After the decision fields; reordering in context_to_prompt_block keeps them first.
+        "correlation": _condensed_correlation(context.get("correlation")),
     }
+
+
+def _condensed_correlation(corr: Any) -> dict[str, Any]:
+    from .correlation import condensed
+
+    return condensed(corr)
 
 
 # Sections the guardrails depend on go first so trimming can never reach them.
 _PROMPT_FIRST = ("pair", "timeframe", "price", "setup", "confluence")
 # Dropped whole, in this order, when the block is still over budget.
-_PROMPT_DROP_ORDER = ("pivots", "level_hints", "sma50", "sma200", "macd_histogram", "trend_line", "regime")
+_PROMPT_DROP_ORDER = ("pivots", "level_hints", "sma50", "sma200", "macd_histogram", "trend_line", "regime", "correlation")
 _TRUNC_MARKER = " …[truncated]"
 
 

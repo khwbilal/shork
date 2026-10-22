@@ -1,6 +1,6 @@
 # Ruleset: Crypto Chart AI development
 
-Version 1.1, 2026-10-21. Owner: Sheryar. Scope: all work on this repo (FastAPI backend in `backend/`, built-in UI in `backend/app/static/`, React UI in `frontend/`, `docs/`). Adapted from the unefy-platform FE ruleset v2.0 (`C:\IT22\unefy-platform\instructions\ruleset-fe-development.md`); see [decision 0006](../decisions/0006-unefy-way-of-working.md) for what was kept, changed and left out. Sits on top of `CLAUDE.md` and `docs/`; where it is silent they win, and a verified repo fact beats this file.
+Version 1.3, 2026-10-22. Owner: Sheryar. Scope: all work on this repo (FastAPI backend in `backend/`, the React + MUI portal in `frontend/`, `docs/`). Adapted from the unefy-platform FE ruleset v2.0 (`C:\IT22\unefy-platform\instructions\ruleset-fe-development.md`); see [decision 0006](../decisions/0006-unefy-way-of-working.md) for what was kept, changed and left out. Sits on top of `CLAUDE.md` and `docs/`; where it is silent they win, and a verified repo fact beats this file.
 
 ## 0. Tailoring and self-review
 
@@ -26,13 +26,13 @@ Tracker of record: [docs/work-log.md](../work-log.md), ids `WL-nnn`.
 
 ## 2. Sub agents and context budget (Required)
 
-2.1 An item that is more than a small edit goes to the `wl-worker` sub agent ([.claude/agents/wl-worker.md](../../.claude/agents/wl-worker.md)) with minimal context: the item text, the files to touch, the API contract and the relevant doc section. The main chat plans, logs, briefs, reviews and relays.
+2.1 The main chat does every item itself; no sub agents (Sheryar, 2026-10-22, to save tokens). The `wl-worker` definition stays for reference only.
 
-2.2 Ask before spawning an agent for an error or bug: show the issue, the context passed and the plan; list several errors at once.
+2.2 (removed in 1.3)
 
-2.3 **No git means no worktrees:** run at most one agent at a time, or agents whose file sets do not overlap. Back up any file an agent will rewrite to the scratchpad first.
+2.3 Back up any file before a risky or scripted edit (no git, section 4).
 
-2.4 An agent does code and gate only. It does not edit `docs/` or `docs/work-log.md`; its report ends with a few lines for the docs pass. Prefer continuing an existing agent over spawning a cold one; a mechanical item may use a smaller model.
+2.4 (removed in 1.3)
 
 2.5 **Docs come last, once:** when the items of a batch are done, the main chat runs one documentation pass (work-log outcomes, feature docs, hubs, decisions, incidents, [project-state.md](../project-state.md)).
 
@@ -72,8 +72,7 @@ One failing check, build or bug is one item: capture the real output and exit co
 | Python tests | `cd backend && .venv/Scripts/python.exe -m pytest -q` | any backend change |
 | Python lint | `cd backend && .venv/Scripts/python.exe -m ruff check app tests` | any backend change |
 | React lint | `cd frontend && npx eslint .` | any React change |
-| Built-in UI parses | `node --check backend/app/static/app.js` | any static UI change |
-| React types and build | `cd frontend && npx tsc -b && npm run build` (delete `frontend/dist` afterwards) | any React or `app.css` change |
+| React types and build | `cd frontend && npx tsc -b && npm run build` (delete `frontend/dist` afterwards) | any React change |
 | Smoke test | start uvicorn on a spare port with `AI_PROVIDER=none`, then `GET /api/health` is 200 and `POST /api/analyze` returns `provider: "offline"` | any backend change |
 | UI check | Playwright from `C:/IT22/unefy-platform/node_modules/playwright`: desktop and 390px phone, light and dark, no page errors, no horizontal overflow | visible UI changes |
 | Security scan | see 7.2 | dependency changes, before declaring a batch done |
@@ -106,11 +105,11 @@ When an endpoint is added or its shape changes: update [api-reference.md](../api
 
 ## 9. Front end standards (Required for UI work)
 
-9.1 Both UIs move together: a visible change lands in the built-in UI **and** the React UI in the same item, or a follow-up item is logged for the other.
+9.1 One UI: the React portal in `frontend/`, built with MUI. The built-in UI in `backend/app/static/` is retired by WL-047 ([decision 0008](../decisions/0008-react-mui-only.md)); FastAPI serves the React build. Until WL-047 is done, the built-in UI is frozen: fixes only, no new features.
 
-9.2 One stylesheet: `backend/app/static/app.css` serves both UIs. Colours come from the tokens on `:root`; no hex in a component rule. Discuss before changing shared tokens.
+9.2 One theme: `frontend/src/theme.ts` (MUI `createTheme`, light and dark) holds every colour. Components use theme values, never hex. Discuss before changing the palette.
 
-9.3 Conventions from [ui.md](../ui.md): direction ink (green/red) for Buy/Sell and win/loss only, every pill has a glyph; missing data is an em dash with a reason (`na()` / `<Na>`); escape every interpolated value (`esc()`, React escapes by default); `askDialog()` / `ask()` instead of `prompt` / `confirm`; one primary button per view; mobile body text 16px and 48px targets.
+9.3 Conventions from [ui.md](../ui.md): direction ink (green/red) for Buy/Sell and win/loss only, every pill has a glyph; missing data is an em dash with a reason (`na()` / `<Na>`); model output is never rendered as raw HTML (React escapes by default; no `dangerouslySetInnerHTML` on it); an MUI Dialog through one shared confirm helper instead of `prompt` / `confirm`; one primary button per view; mobile body text 16px and 48px targets.
 
 9.4 The design reference is the Unefy portal (`C:\IT22\unefy-platform`, Portal Design Guide v2.x). Port from real measurements; say when something was measured from a screenshot.
 
@@ -136,3 +135,5 @@ When an endpoint is added or its shape changes: update [api-reference.md](../api
 |---|---|---|---|
 | 1.0 | 2026-10-21 | First version, adapted from the unefy-platform FE ruleset v2.0 (WL-015): Python and React gate instead of Next.js, SonarQube and Jest; git, branches and worktrees dormant by owner decision; Trivy command for `uv.lock` and `package-lock.json`; tmux left out as in unefy v2.0. | Sheryar (asked for it, 2026-10-21) |
 | 1.1 | 2026-10-21 | pytest, ruff and ESLint join the gate (6.1, 6.2; WL-018, WL-019). | Sheryar (2026-10-21) |
+| 1.2 | 2026-10-22 | The portal is React + MUI only; the built-in UI is retired (9.1, 9.2, 9.3, 6.1; WL-047, decision 0008). | Sheryar ("yes", 2026-10-22) |
+| 1.3 | 2026-10-22 | No sub agents; the main chat does all items (2.1 to 2.4). | Sheryar ("yes", 2026-10-22) |

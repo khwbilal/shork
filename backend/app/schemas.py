@@ -98,6 +98,67 @@ class CalendarResponse(BaseModel):
     sources: list[CalendarSource]
 
 
+class CorrelationStat(BaseModel):
+    """Correlation and beta of the symbol's log returns to one benchmark."""
+
+    available: bool
+    correlation: float | None = None  # Pearson, -1 to 1
+    beta: float | None = None  # cov(symbol, benchmark) / var(benchmark)
+    overlap_pct: float | None = None  # share of expected candles present for both
+    samples: int | None = None  # consecutive returns used
+    error: str | None = None
+
+
+class CorrelationWindow(BaseModel):
+    interval: str  # 1h | 1d
+    days: int
+    candles: int  # expected closed candles in the window
+    btc: CorrelationStat
+    eth: CorrelationStat
+
+
+class CorrelationResponse(BaseModel):
+    available: bool
+    symbol: str
+    market: Literal["spot", "usdm", "spot_or_usdm"] | None = None
+    windows: dict[str, CorrelationWindow] = {}  # keys: 30d_1h, 90d_1d
+    summary: str | None = None
+    error: str | None = None
+
+
+class PulseCell(BaseModel):
+    """One timeframe of the pulse; the last candle is the live one."""
+
+    tf: Literal["1M", "1w", "1d", "1h", "15m"]
+    available: bool
+    price: float | None = None  # last close
+    trend: Literal["up", "down", "flat"] | None = None
+    rsi: float | None = None  # RSI 14
+    ema20: float | None = None
+    ema50: float | None = None
+    price_vs_ema20: Literal["above", "below"] | None = None
+    change_pct: float | None = None  # last candle vs the previous close
+    bias: Literal["Buy", "Sell", "Neutral"] | None = None
+    candle_open: str | None = None  # ISO 8601 UTC open time of the last candle
+    error: str | None = None
+
+
+class PulseSymbol(BaseModel):
+    symbol: str
+    available: bool  # the 24h ticker; cells carry their own flag
+    price: float | None = None
+    change_24h_pct: float | None = None
+    error: str | None = None
+    timeframes: list[PulseCell]
+
+
+class PulseResponse(BaseModel):
+    symbols: list[PulseSymbol]
+    timeframes: list[str]
+    rule: str  # the trend and bias rule in words
+    generated_at: str
+
+
 class JobStatus(BaseModel):
     job: str
     schedule: str

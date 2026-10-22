@@ -1,6 +1,6 @@
 # 0002: One stylesheet serves both UIs
 
-**Date:** 2026-10-21 · **Work item:** WL-009 · **Status:** accepted
+**Date:** 2026-10-21 · **Work item:** WL-009 · **Status:** superseded by [0008](0008-react-mui-only.md) (2026-10-22)
 
 ## Context
 

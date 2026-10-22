@@ -4,7 +4,7 @@
 >
 > Issue first: every change gets a `WL-nnn` row in [docs/work-log.md](docs/work-log.md) before the first edit. **No git** by owner decision ([0004](docs/decisions/0004-no-git-for-now.md)): back up files before risky edits, do not suggest git. Project text: no em dashes, no en dashes, no exclamation marks.
 
-FastAPI backend (`backend/app/`), a no-build static UI (`backend/app/static/`) and a React UI (`frontend/`) that imports the same `app.css`. Docs live in `docs/` (index [docs/README.md](docs/README.md)): decisions in `docs/decisions/`, incidents in `docs/incidents/`.
+FastAPI backend (`backend/app/`) and the React + MUI portal (`frontend/`). The old no-build UI in `backend/app/static/` is frozen and retired by WL-047. Docs live in `docs/` (index [docs/README.md](docs/README.md)): decisions in `docs/decisions/`, incidents in `docs/incidents/`.
 
 ## Run
 
@@ -24,10 +24,10 @@ uv run uvicorn app.main:app --host 127.0.0.1 --port 8000 --reload
 - Market snapshot: `app/market.py:fetch_coin_context`. Every source is optional and records `available: false` / `error` instead of raising.
 - Persistence: SQLite `backend/data/app.db` (`app/db.py`, migrations in `app/migrations/`), see [docs/database.md](docs/database.md). Scheduled jobs: `app/jobs/` plus `scripts/jobs/*.bat`, see [docs/scheduled-jobs.md](docs/scheduled-jobs.md).
 
-## UI rules (Unefy-derived; see `docs/ui.md` and ruleset 9)
+## UI rules (see `docs/ui.md` and ruleset 9)
 
-- Both UIs change together. Colours come from the tokens in `app.css`; no hex in a component rule. `--action` for interactive elements, `--brand` for the logo only.
+- One UI: React + MUI. Colours come from the theme in `frontend/src/theme.ts`; no hex in components. The primary colour is for interactive elements, the brand colour for the logo only.
 - Green and red mean Buy/win and Sell/loss only; every pill carries a glyph as well as a colour.
 - Missing data is `na("reason")` / `<Na>` (an em dash with the reason on hover), never `0` or blank.
-- Escape every interpolated value (`esc()`); model output never goes in as raw HTML.
-- `askDialog()` / `ask()` instead of `window.prompt` / `confirm`. One primary button per view.
+- Model output never goes in as raw HTML (no `dangerouslySetInnerHTML`).
+- An MUI Dialog through the shared confirm helper instead of `window.prompt` / `confirm`. One primary button per view.

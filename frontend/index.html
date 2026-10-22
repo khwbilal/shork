@@ -5,11 +5,13 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Crypto Chart AI</title>
     <script>
-      // Apply the stored theme before first paint so there is no flash.
+      // Apply the stored colour scheme before first paint so there is no flash.
+      // MUI keeps the mode in localStorage under cca_theme: light, dark or system.
       try {
-        const t = localStorage.getItem("cca_theme");
-        if (t === "light" || t === "dark") document.documentElement.dataset.theme = t;
-      } catch {}
+        var m = localStorage.getItem("cca_theme");
+        var dark = m === "dark" || (m !== "light" && window.matchMedia("(prefers-color-scheme: dark)").matches);
+        document.documentElement.setAttribute(dark ? "data-dark" : "data-light", "");
+      } catch (e) {}
     </script>
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />

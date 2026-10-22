@@ -59,3 +59,12 @@ export function humanize(s: string | null | undefined): string {
 export function currentPrice(market: Market | null): number | undefined {
   return market?.coin_analysis?.price_data?.current_price ?? market?.yahoo_price?.price;
 }
+
+export function fmtFixed(n: unknown, digits = 2): string | null {
+  return isNum(n) ? Number(n).toFixed(digits) : null;
+}
+
+/** Today's date in Pakistan time as YYYY-MM-DD, to match the calendar's +05:00 timestamps. */
+export function pktToday(now: Date = new Date()): string {
+  return new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Karachi", year: "numeric", month: "2-digit", day: "2-digit" }).format(now);
+}

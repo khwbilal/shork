@@ -14,6 +14,8 @@ Errors use FastAPI's shape, `{"detail": "…"}`: `400` for bad input, `404` when
 | `GET` | `/api/market/{symbol}?exchange=BINANCE&timeframe=1h` | Raw snapshot, for debugging. [Shape](analysis-pipeline.md#snapshot-shape-top-level-keys) |
 | `GET` | `/api/symbols/search?q=&exchange=BINANCE&limit=25` | Search by symbol or name. Each result adds `type`, `name` and `market`. [Details](features/symbol-search.md) |
 | `GET` | `/api/calendar?days=7&kind=` | Upcoming events and the status of each source. [Details](features/calendar.md) |
+| `GET` | `/api/pulse` | BTC and ETH: price, 24h change, and per timeframe (1M, 1w, 1d, 1h, 15m) trend, RSI and bias. Cached 20 s. [Details](#get-apipulse) |
+| `GET` | `/api/correlation/{symbol}` | Correlation and beta against BTC and ETH, 30 days of 1h and 90 days of 1d. Cached 15 min. [Details](#get-apicorrelationsymbol) |
 | `GET` | `/api/jobs` | Last run and next run of each scheduled job. [Details](scheduled-jobs.md#seeing-runs) |
 
 ### `POST /api/analyze`
@@ -25,7 +27,7 @@ Errors use FastAPI's shape, `{"detail": "…"}`: `400` for bad input, `404` when
 | `timeframe` | string | `1h` (`15m`, `1h`, `4h`, `1D`) |
 | `custom_prompt` | string \| null | Extra trader notes appended to the prompt |
 
-Returns `symbol, exchange, timeframe, tv_symbol, market, levels, analysis, provider, disclaimer`. `provider` is `claude_code`, `claude`, `cursor`, `openai` or `offline`.
+Returns `symbol, exchange, timeframe, tv_symbol, market, levels, analysis, provider`. `market.correlation` and `market.upcoming_events` are described in the [analysis pipeline](analysis-pipeline.md#snapshot-shape-top-level-keys). `provider` is `claude_code`, `claude`, `cursor`, `openai` or `offline`.
 
 ### `POST /api/chat`
 
@@ -35,7 +37,25 @@ Returns `symbol, exchange, timeframe, tv_symbol, market, levels, analysis, provi
 | `message` | string | required |
 | `history` | `[{role, content}]` | `[]`. The last 6 are used. |
 
-Returns `symbol, reply, provider, market_snapshot (null), disclaimer`.
+Returns `symbol, reply, provider, market_snapshot (null)`.
+
+### `GET /api/pulse`
+
+Added in WL-035. `{symbols: PulseSymbol[], timeframes: ["1M","1w","1d","1h","15m"], rule, generated_at}`.
+
+- `PulseSymbol`: `{symbol, available, price, change_24h_pct, error, timeframes: PulseCell[]}`. `available` refers to the 24h ticker; the cells stand on their own.
+- `PulseCell`: `{tf, available, price, trend: up|down|flat, rsi, ema20, ema50, price_vs_ema20: above|below, change_pct, bias: Buy|Sell|Neutral, candle_open, error}`.
+- **Rule** (also returned in `rule`): trend is up when EMA20 > EMA50 and price > EMA20, down when EMA20 < EMA50 and price < EMA20, otherwise flat. Bias is Buy when the trend is up and RSI < 70, Sell when the trend is down and RSI > 30, otherwise Neutral. The last candle is the live one.
+- Binance spot klines (120 per cell) and the 24h ticker, all fetched concurrently with a 5 s timeout. Every result, failures included, is cached for 20 s, so the UI can poll every 20 s.
+
+### `GET /api/correlation/{symbol}`
+
+Added in WL-036. `{available, symbol, market: spot|usdm|spot_or_usdm, windows: {"30d_1h", "90d_1d"}, summary, error}`.
+
+- Each window is `{interval, days, candles, btc: Stat, eth: Stat}`, and each `Stat` is `{available, correlation, beta, overlap_pct, samples, error}`.
+- **Method:** Pearson correlation of log returns of closed candles aligned on open time, and beta = cov / var of the benchmark. Less than 60% overlap, fewer than 10 returns, or a flat benchmark gives `available: false`, so a coin listed recently has no 30-day value yet.
+- **Market:** a `.P` symbol uses USD-M; otherwise the instrument catalogue decides, and the benchmarks use the same market. Klines are cached for 15 minutes.
+- The same object is in the snapshot as `market.correlation`.
 
 ## Watchlist
 

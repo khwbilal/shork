@@ -1,3 +1,6 @@
+import Box from "@mui/material/Box";
+import { useTheme } from "@mui/material/styles";
+import ShowChart from "@mui/icons-material/ShowChart";
 import { useEffect, useId, useState } from "react";
 import { EmptyState } from "./ui";
 
@@ -36,6 +39,9 @@ export default function TradingViewChart({
 }: Readonly<{ tvSymbol: string; timeframe: string; dark: boolean }>) {
   const containerId = `tv_chart_${useId().replace(/:/g, "")}`;
   const [failed, setFailed] = useState(false);
+  // The widget wants a literal colour; take the paper colour of the active scheme from the theme.
+  const theme = useTheme();
+  const toolbarBg = theme.colorSchemes[dark ? "dark" : "light"]?.palette.background.paper ?? theme.palette.background.paper;
 
   useEffect(() => {
     let cancelled = false;
@@ -53,7 +59,7 @@ export default function TradingViewChart({
           theme: dark ? "dark" : "light",
           style: "1",
           locale: "en",
-          toolbar_bg: dark ? "#14191D" : "#FFFFFF",
+          toolbar_bg: toolbarBg,
           enable_publishing: false,
           allow_symbol_change: false,
           container_id: containerId,
@@ -66,19 +72,20 @@ export default function TradingViewChart({
     return () => {
       cancelled = true;
     };
-  }, [containerId, tvSymbol, timeframe, dark]);
+  }, [containerId, tvSymbol, timeframe, dark, toolbarBg]);
 
+  const size = { height: { xs: 380, md: 520 }, minWidth: 0 };
   if (failed) {
     return (
-      <div id="tv_chart">
-        <EmptyState text="TradingView chart library did not load. Check your connection." icon="chart" />
-      </div>
+      <Box id="tv_chart" sx={size}>
+        <EmptyState text="TradingView chart library did not load. Check your connection." icon={<ShowChart />} />
+      </Box>
     );
   }
-  // #tv_chart carries the sizing from the shared stylesheet; the inner id is the widget mount.
+  // The outer box sets the size; the inner id is the widget mount.
   return (
-    <div id="tv_chart">
+    <Box id="tv_chart" sx={size}>
       <div id={containerId} style={{ height: "100%" }} />
-    </div>
+    </Box>
   );
 }

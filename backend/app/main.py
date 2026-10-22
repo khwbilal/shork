@@ -33,10 +33,12 @@ from .schemas import (
     AnalyzeResponse,
     ChatRequest,
     ChatResponse,
+    CorrelationResponse,
     HealthResponse,
     JobsResponse,
     JournalClose,
     JournalCreate,
+    PulseResponse,
     TradeLevels,
     WatchlistRequest,
 )
@@ -238,6 +240,8 @@ async def analyze(req: AnalyzeRequest) -> AnalyzeResponse:
     levels = extract_levels(text)
     model_bias = levels.bias
     levels = _fill_levels_from_market(levels, market)
+    # Snapshot for the signal archive before desk guards can force Neutral.
+    levels_for_signal = levels.model_dump()
     levels = _apply_confluence_guardrail(levels, market)
     levels = _apply_reward_risk_guard(levels)
     analysis = format_clear_brief(
@@ -255,14 +259,23 @@ async def analyze(req: AnalyzeRequest) -> AnalyzeResponse:
 
     # Archive Buy/Sell plans for later TP/SL verification. Offline plans are
     # never archived — the track record is for calls an AI actually made.
+    # Use the pre-guard bias so a desk Neutral override still leaves a trackable plan
+    # when the model (or filled levels) had a real entry / stop / target.
     if provider != "offline":
         try:
             from .signals import record_signal
 
+            archive = dict(levels_for_signal)
+            if archive.get("bias") not in ("Buy", "Sell") and model_bias in ("Buy", "Sell"):
+                archive["bias"] = model_bias
+            if levels.bias == "Neutral" and archive.get("bias") in ("Buy", "Sell"):
+                note = (archive.get("reasoning") or "").strip()
+                override = f"Desk plan Neutral (guards); archived as {archive['bias']}"
+                archive["reasoning"] = f"{note} | {override}".strip(" |")
             sig = record_signal(
                 symbol=pair,
                 timeframe=req.timeframe,
-                levels=levels.model_dump(),
+                levels=archive,
                 market=market,
             )
             if sig:
@@ -323,6 +336,22 @@ async def market_only(
     settings = get_settings()
     pair = normalize_pair(symbol)
     return await fetch_coin_context_async(pair, exchange, timeframe, settings)
+
+
+@app.get("/api/correlation/{symbol}", response_model=CorrelationResponse)
+def correlation(symbol: str) -> CorrelationResponse:
+    """Correlation and beta to BTC and ETH, 30d of 1h and 90d of 1d (sync: runs in the threadpool)."""
+    from .correlation import compute_correlation
+
+    return CorrelationResponse(**compute_correlation(symbol))
+
+
+@app.get("/api/pulse", response_model=PulseResponse)
+async def pulse() -> PulseResponse:
+    """BTC and ETH price, 24h change and a per-timeframe pulse; cached 20 s per cell."""
+    from .pulse import build_pulse
+
+    return PulseResponse(**await build_pulse())
 
 
 @app.get("/api/symbols/search")
