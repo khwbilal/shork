@@ -152,23 +152,44 @@ def record_signal(
     return sig
 
 
+def _interval_ms(interval: str) -> int:
+    return {
+        "1m": 60_000,
+        "5m": 300_000,
+        "15m": 900_000,
+        "30m": 1_800_000,
+        "1h": 3_600_000,
+        "2h": 7_200_000,
+        "4h": 14_400_000,
+        "1d": 86_400_000,
+        "1w": 604_800_000,
+    }.get(interval, 3_600_000)
+
+
 def _fetch_klines_after(
     symbol: str,
     timeframe: str,
     after_ms: int,
     limit: int = 100,
 ) -> list[dict[str, float]]:
-    """OHLCV bars strictly after signal time."""
+    """OHLCV bars that overlap or start after the signal time.
+
+    Includes the in-progress bar that contains the signal (needed for 1D / 4h
+    plans opened mid-candle). Futures is tried first — many pairs are USDT-M only.
+    """
     pair = symbol.upper().replace(".P", "").replace("/", "")
     interval = normalize_timeframe(timeframe)
+    iv = _interval_ms(interval)
+    # Pull one interval earlier so Binance returns the candle that was open at signal time.
+    start_ms = max(0, after_ms - iv)
     urls = [
-        "https://api.binance.com/api/v3/klines",
         "https://fapi.binance.com/fapi/v1/klines",
+        "https://api.binance.com/api/v3/klines",
     ]
     params = {
         "symbol": pair,
         "interval": interval,
-        "startTime": after_ms,
+        "startTime": start_ms,
         "limit": min(limit, 500),
     }
     with httpx.Client(timeout=20.0) as client:
@@ -180,22 +201,53 @@ def _fetch_klines_after(
                 raw = r.json()
                 out = []
                 for k in raw:
-                    # k[0]=open time ms
-                    if int(k[0]) <= after_ms:
+                    open_t = int(k[0])
+                    close_t = open_t + iv
+                    # Skip bars that fully closed before the signal.
+                    if close_t <= after_ms:
                         continue
                     out.append(
                         {
-                            "t": int(k[0]),
+                            "t": open_t,
                             "o": float(k[1]),
                             "h": float(k[2]),
                             "l": float(k[3]),
                             "c": float(k[4]),
                         }
                     )
-                return out
+                if out:
+                    return out
             except Exception as exc:  # noqa: BLE001
                 logger.debug("klines after failed %s: %s", url, exc)
     return []
+
+
+def _verify_timeframe(timeframe: str) -> tuple[str, int]:
+    """Finer tape for TP/SL order + how many of those bars to walk."""
+    tf = normalize_timeframe(timeframe)
+    # (interval, max bars) — keep under Binance's 1500 cap
+    return {
+        "1w": ("4h", 84),
+        "1d": ("1m", 1500),   # ~1 day of 1m is enough for most; more if still open
+        "4h": ("1m", 1000),
+        "2h": ("1m", 800),
+        "1h": ("1m", 500),
+        "30m": ("1m", 400),
+        "15m": ("1m", 300),
+        "5m": ("1m", 200),
+    }.get(tf, (tf, DEFAULT_HORIZON_BARS.get(tf, 48)))
+
+
+def _same_bar_bias(bias: str, open_px: float, hi: float, lo: float, sl: float, tp: float) -> str:
+    """When one bar touches both levels, guess order from the open (closer extreme first)."""
+    if bias == "Buy":
+        # Dip distance vs rally distance from the open
+        if (open_px - lo) <= (hi - open_px):
+            return "sl"
+        return "tp"
+    if (hi - open_px) <= (open_px - lo):
+        return "sl"
+    return "tp"
 
 
 def _resolve_outcome(
@@ -207,74 +259,53 @@ def _resolve_outcome(
 ) -> dict[str, Any]:
     """
     Walk bars in order. First touch of SL or TP wins.
-    Same-bar both-hit → conservative: count as loss (SL assumed first).
+    Same-bar both-hit → open-distance heuristic (not always loss).
     """
+    risk = abs(entry - sl) or 1e-9
+
+    def _hit_at(b: dict[str, float]) -> str:
+        return datetime.fromtimestamp(b["t"] / 1000, tz=timezone.utc).isoformat()
+
+    def _win(i: int, b: dict[str, float], note: str = "target_hit") -> dict[str, Any]:
+        r_mult = round(((tp - entry) if bias == "Buy" else (entry - tp)) / risk, 2)
+        return {
+            "status": "win",
+            "outcome": note,
+            "bars_checked": i + 1,
+            "hit_price": tp,
+            "hit_at": _hit_at(b),
+            "r_multiple": r_mult,
+        }
+
+    def _loss(i: int, b: dict[str, float], note: str = "stop_hit") -> dict[str, Any]:
+        return {
+            "status": "loss",
+            "outcome": note,
+            "bars_checked": i + 1,
+            "hit_price": sl,
+            "hit_at": _hit_at(b),
+            "r_multiple": -1.0,
+        }
+
     for i, b in enumerate(bars):
         hi, lo = b["h"], b["l"]
+        open_px = float(b.get("o") or entry)
         if bias == "Buy":
             hit_sl = lo <= sl
             hit_tp = hi >= tp
-            if hit_sl and hit_tp:
-                return {
-                    "status": "loss",
-                    "outcome": "same_bar_both (counted loss)",
-                    "bars_checked": i + 1,
-                    "hit_price": sl,
-                    "hit_at": datetime.fromtimestamp(b["t"] / 1000, tz=timezone.utc).isoformat(),
-                    "r_multiple": -1.0,
-                }
-            if hit_sl:
-                return {
-                    "status": "loss",
-                    "outcome": "stop_hit",
-                    "bars_checked": i + 1,
-                    "hit_price": sl,
-                    "hit_at": datetime.fromtimestamp(b["t"] / 1000, tz=timezone.utc).isoformat(),
-                    "r_multiple": -1.0,
-                }
-            if hit_tp:
-                risk = abs(entry - sl) or 1e-9
-                r_mult = round((tp - entry) / risk, 2)
-                return {
-                    "status": "win",
-                    "outcome": "target_hit",
-                    "bars_checked": i + 1,
-                    "hit_price": tp,
-                    "hit_at": datetime.fromtimestamp(b["t"] / 1000, tz=timezone.utc).isoformat(),
-                    "r_multiple": r_mult,
-                }
-        else:  # Sell
+        else:
             hit_sl = hi >= sl
             hit_tp = lo <= tp
-            if hit_sl and hit_tp:
-                return {
-                    "status": "loss",
-                    "outcome": "same_bar_both (counted loss)",
-                    "bars_checked": i + 1,
-                    "hit_price": sl,
-                    "hit_at": datetime.fromtimestamp(b["t"] / 1000, tz=timezone.utc).isoformat(),
-                    "r_multiple": -1.0,
-                }
-            if hit_sl:
-                return {
-                    "status": "loss",
-                    "outcome": "stop_hit",
-                    "bars_checked": i + 1,
-                    "hit_price": sl,
-                    "hit_at": datetime.fromtimestamp(b["t"] / 1000, tz=timezone.utc).isoformat(),
-                    "r_multiple": -1.0,
-                }
-            if hit_tp:
-                risk = abs(entry - sl) or 1e-9
-                r_mult = round((entry - tp) / risk, 2)
-                return {
-                    "status": "win",
-                    "outcome": "target_hit",
-                    "bars_checked": i + 1,
-                    "hit_price": tp,
-                    "hit_at": datetime.fromtimestamp(b["t"] / 1000, tz=timezone.utc).isoformat(),
-                    "r_multiple": r_mult,
-                }
+
+        if hit_sl and hit_tp:
+            first = _same_bar_bias(bias, open_px, hi, lo, sl, tp)
+            if first == "tp":
+                return _win(i, b, "same_bar_both (open heuristic → target)")
+            return _loss(i, b, "same_bar_both (open heuristic → stop)")
+        if hit_sl:
+            return _loss(i, b)
+        if hit_tp:
+            return _win(i, b)
 
     return {
         "status": "open",
@@ -307,9 +338,13 @@ def verify_signal(sig: dict[str, Any], force: bool = False) -> dict[str, Any]:
         return sig
 
     tf = sig.get("timeframe") or "1h"
-    horizon = DEFAULT_HORIZON_BARS.get(normalize_timeframe(tf), 48)
+    walk_tf, horizon = _verify_timeframe(tf)
     after_ms = int(created.timestamp() * 1000)
-    bars = _fetch_klines_after(sig["symbol"], tf, after_ms, limit=horizon + 5)
+    bars = _fetch_klines_after(sig["symbol"], walk_tf, after_ms, limit=min(horizon + 5, 1500))
+    # Fallback to the signal's own timeframe if the fine tape is empty
+    if not bars and walk_tf != normalize_timeframe(tf):
+        horizon = DEFAULT_HORIZON_BARS.get(normalize_timeframe(tf), 48)
+        bars = _fetch_klines_after(sig["symbol"], tf, after_ms, limit=horizon + 5)
 
     if not bars:
         sig["verified_at"] = _now()
