@@ -33,8 +33,9 @@ Hard rules:
 - Match plan style to setup.type: trend_continuation / breakout / mean_revert / chop.
 - Give one primary trade plan with entry, stop_loss, take_profit as real prices near the snapshot price.
 - Never use entry/stop/target = 0. Prefer snapshot.level_hints / pivots / S-R.
-- Reward:risk must be at least 1.5:1 (|target-entry| >= 1.5 x |entry-stop|). Put the stop
-  beyond structure but within ~2 ATR; if no target with 1.5R exists, bias MUST be Neutral.
+- Stop and R:R follow STRATEGY risk when present (strategy_risk / RISK line): stop beyond
+  structure within stop_atr_min..stop_atr_max ATR of entry; min R:R from min_reward_risk.
+  If no such target exists, bias MUST be Neutral. Default when risk missing: 0.75..2 ATR, 1.5:1.
 - Weigh: setup, confluence, mtf, ADX, BB, VWAP, orderbook, liquidity map (long-cascade vs short-squeeze magnets), whales/funding/OI, regime.
 - If liquidity.bias is Short-squeeze bias, favor longs only with confluence support; Long-cascade bias favors shorts/caution on longs.
 - data_source binance_local is valid.
@@ -78,16 +79,42 @@ def build_analysis_prompt(
     timeframe: str,
     market_block: str,
     custom_prompt: str | None = None,
+    *,
+    strategy_id: str = "desk",
+    strategy_label: str = "Desk (default)",
+    strategy_rules: str | None = None,
+    uses_desk_pipeline: bool = True,
+    stop_atr_min: float = 0.75,
+    stop_atr_max: float = 2.0,
+    min_reward_risk: float = 1.5,
 ) -> str:
     extra = f"\nTrader notes: {custom_prompt}" if custom_prompt else ""
+    strategy_block = f"STRATEGY: {strategy_label} ({strategy_id})"
+    if strategy_rules:
+        strategy_block += f"\n{strategy_rules}"
+    strategy_block += (
+        f"\nRISK: stop within {stop_atr_min:g}..{stop_atr_max:g} ATR of entry; "
+        f"min R:R {min_reward_risk:g}:1 (else Neutral)."
+    )
+    if uses_desk_pipeline:
+        guard = "Obey confluence + chop guardrails."
+    else:
+        guard = (
+            "Follow the STRATEGY playbook and RISK line above. Use strategy_pack "
+            "indicators only; do not invent missing fields. Desk chop confluence "
+            f"Neutral rules do not apply; still require real prices and at least "
+            f"{min_reward_risk:g}:1 R:R (else Neutral)."
+        )
     return f"""Full analysis: {exchange}:{symbol} · {timeframe}
 
-Market snapshot (includes setup, confluence, MTF, orderbook, whales, regime):
+{strategy_block}
+
+Market snapshot (includes setup, confluence or strategy_fit, MTF / strategy_pack, book, flow):
 {market_block}
 {extra}
 
 Follow BIAS/SETUP/SCORE/TREND/MTF/BOOK/LIQ/FLOW/REGIME/ENTRY/STOP/TARGET/SUPPORT/RESISTANCE.
-Obey confluence + chop guardrails. Keep it scannable.
+{guard} Keep it scannable.
 """
 
 
@@ -98,10 +125,14 @@ def build_chat_prompt(
     market_block: str,
     message: str,
     history: list[ChatMessage],
+    *,
+    strategy_id: str = "desk",
+    strategy_label: str = "Desk (default)",
 ) -> str:
     hist = "\n".join(f"{m.role.upper()}: {m.content}" for m in history[-6:])
     hist_block = f"\nRecent chat:\n{hist}\n" if hist else ""
     return f"""Pair: {exchange}:{symbol} ({timeframe})
+STRATEGY: {strategy_label} ({strategy_id})
 
 Snapshot:
 {market_block}

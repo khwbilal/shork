@@ -201,6 +201,9 @@ def _old_signal(sid, minutes_ago=0):
         "setup": "pullback", "trade_allowed": False, "confluence": 3.0, "confidence": 0.6,
         "status": "open", "outcome": None, "verified_at": None, "bars_checked": 0,
         "hit_price": None, "hit_at": None, "r_multiple": None, "notes": "n",
+        "strategy_id": None,
+        "live_review_json": [],
+        "multi_analysis_json": None,
     }
 
 

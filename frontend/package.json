@@ -15,7 +15,8 @@
     "@mui/icons-material": "9.4.0",
     "@mui/material": "9.4.0",
     "react": "^19.0.0",
-    "react-dom": "^19.0.0"
+    "react-dom": "^19.0.0",
+    "recharts": "^3.10.1"
   },
   "devDependencies": {
     "@eslint/js": "^9.39.5",

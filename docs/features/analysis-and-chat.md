@@ -7,13 +7,15 @@ The Desk page has two ways to ask the AI: **Full analysis** gives a structured t
 **UI:** Desk → **Full analysis** · **API:** `POST /api/analyze`
 
 ```json
-{ "symbol": "SOLUSDT", "exchange": "BINANCE", "timeframe": "1h", "custom_prompt": "optional trader notes" }
+{ "symbol": "SOLUSDT", "exchange": "BINANCE", "timeframe": "1h", "strategy_id": "desk", "custom_prompt": "optional trader notes" }
 ```
 
-1. Builds the [market snapshot](../analysis-pipeline.md).
-2. Sends it to the [AI provider](../ai-providers.md) with the desk-analyst prompt, which asks for a fixed card: BIAS, SETUP, SCORE, TREND, MTF, BOOK, LIQ, FLOW, REGIME, ENTRY, STOP, TARGET, SUPPORT, RESISTANCE, R:R, CONFIDENCE, WHY, PLAN, followed by a JSON block with the levels.
-3. Parses the levels, fills gaps from local TA, and applies the [confluence and reward:risk guards](../ai-providers.md#what-happens-to-the-reply).
-4. If an AI made the call and the result is a Buy or Sell with entry, stop and target, it is archived as a [signal](signals.md).
+`strategy_id` defaults to `desk` (today's full pipeline). Other ids load a [strategy pack](strategies.md) with its own timeframes, indicators and playbook.
+
+1. Builds the [market snapshot](../analysis-pipeline.md) (or the strategy pack for a named strategy).
+2. Sends it to the [AI provider](../ai-providers.md) with the desk-analyst prompt, which asks for a fixed card: BIAS, SETUP, SCORE, TREND, MTF, BOOK, LIQ, FLOW, REGIME, ENTRY, STOP, TARGET, SUPPORT, RESISTANCE, R:R, CONFIDENCE, WHY, PLAN, followed by a JSON block with the levels. Named strategies get a STRATEGY playbook block.
+3. Parses the levels, fills gaps from local TA, and applies the [confluence and reward:risk guards](../ai-providers.md#what-happens-to-the-reply). Confluence / chop Neutral applies to `desk` only; R:R applies to every strategy.
+4. If an AI made the call and the result is a Buy or Sell with entry, stop and target, it is archived as a [signal](signals.md) with `strategy_id`.
 
 **Response** (abridged):
 
@@ -21,6 +23,7 @@ The Desk page has two ways to ask the AI: **Full analysis** gives a structured t
 {
   "symbol": "SOLUSDT", "exchange": "BINANCE", "timeframe": "1h",
   "tv_symbol": "BINANCE:SOLUSDT",
+  "strategy_id": "desk", "strategy_label": "Desk (default)",
   "provider": "claude",
   "levels": {
     "bias": "Buy", "entry": 107.25, "stop_loss": 103.39, "take_profit": 108.53,

@@ -7,6 +7,16 @@ class AnalyzeRequest(BaseModel):
     symbol: str = Field(..., examples=["SOLUSDT", "BTCUSDT", "ETHUSDT"])
     exchange: str = Field(default="BINANCE")
     timeframe: str = Field(default="1h", examples=["15m", "1h", "4h", "1D"])
+    strategy_id: str = Field(
+        default="desk",
+        examples=["desk", "smc", "scalping", "all"],
+        description="Use 'all' to run every pack and optimize.",
+    )
+    optimize_mode: str = Field(
+        default="local_score",
+        examples=["local_score", "ai_ensemble", "majority_vote"],
+        description="Only used when strategy_id is 'all'.",
+    )
     custom_prompt: str | None = None
 
 
@@ -19,6 +29,7 @@ class ChatRequest(BaseModel):
     symbol: str = Field(..., examples=["SOLUSDT"])
     exchange: str = Field(default="BINANCE")
     timeframe: str = Field(default="1h")
+    strategy_id: str = Field(default="desk")
     message: str
     history: list[ChatMessage] = Field(default_factory=list)
 
@@ -45,10 +56,15 @@ class AnalyzeResponse(BaseModel):
     exchange: str
     timeframe: str
     tv_symbol: str
+    strategy_id: str = "desk"
+    strategy_label: str = "Desk (default)"
     market: dict[str, Any]
     levels: TradeLevels
     analysis: str
     provider: str
+    optimize_mode: str | None = None
+    final_strategy_id: str | None = None
+    packs: list[dict[str, Any]] | None = None
 
 
 class ChatResponse(BaseModel):
@@ -56,6 +72,37 @@ class ChatResponse(BaseModel):
     reply: str
     market_snapshot: dict[str, Any] | None = None
     provider: str
+    strategy_id: str = "desk"
+
+
+class StrategyRiskInfo(BaseModel):
+    stop_atr_min: float = 0.75
+    stop_atr_max: float = 2.0
+    min_reward_risk: float = 1.5
+    target_r_min: float = 2.0
+    review_near_stop_r: float = 0.35
+    review_hold_min_r: float = -0.35
+    review_hold_max_r: float = 0.70
+    review_exit_loss_r: float = -0.60
+    review_bank_target_frac: float = 0.85
+    review_chop_band_r: float = 0.15
+
+
+class StrategyInfo(BaseModel):
+    id: str
+    label: str
+    summary: str
+    primary_tf: str | None = None
+    context_tfs: list[str] = []
+    incompatible_desk_tfs: list[str] = []
+    indicators: list[str] = []
+    uses_desk_pipeline: bool = False
+    risk: StrategyRiskInfo = Field(default_factory=StrategyRiskInfo)
+
+
+class StrategiesResponse(BaseModel):
+    strategies: list[StrategyInfo]
+    default: str = "desk"
 
 
 class HealthResponse(BaseModel):

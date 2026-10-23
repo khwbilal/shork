@@ -45,6 +45,7 @@ import { monoSx } from "./ui";
 
 const NAV_ICON: Record<PageKey, ReactElement> = {
   desk: <CandlestickChartOutlined />,
+  dashboard: <ShowChart />,
   watchlist: <FormatListBulleted />,
   calendar: <CalendarMonthOutlined />,
   journal: <MenuBookOutlined />,
@@ -192,6 +193,7 @@ function RailContent({
       </Stack>
       <List dense sx={{ flex: 1, overflowY: "auto", pt: 1 }}>
         <NavItem page="desk" current={page} folded={folded} />
+        <NavItem page="dashboard" current={page} folded={folded} />
         <NavItem page="watchlist" current={page} folded={folded} />
         <NavItem page="calendar" current={page} folded={folded} />
         {folded ? (

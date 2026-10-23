@@ -1,11 +1,23 @@
 import Box from "@mui/material/Box";
 import Card from "@mui/material/Card";
+import FormControl from "@mui/material/FormControl";
+import InputLabel from "@mui/material/InputLabel";
+import MenuItem from "@mui/material/MenuItem";
+import Select from "@mui/material/Select";
 import Stack from "@mui/material/Stack";
 import Typography from "@mui/material/Typography";
 import AutoAwesome from "@mui/icons-material/AutoAwesome";
 import BookmarkAddOutlined from "@mui/icons-material/BookmarkAddOutlined";
 import { useEffect, useRef, useState } from "react";
-import { api, type ChatMessage, type Market, type TradeLevels } from "../api";
+import {
+  api,
+  type ChatMessage,
+  type Market,
+  type OptimizeMode,
+  type StrategyInfo,
+  type StrategyPackResult,
+  type TradeLevels,
+} from "../api";
 import ChatPanel, { type UiMessage } from "../components/ChatPanel";
 import { ConfluenceCard, CorrelationCard, FlowCard, LevelsBoard, LiquidityCard, SetupCard } from "../components/DeskCards";
 import { useFeedback } from "../components/feedback";
@@ -19,6 +31,12 @@ const GREETING =
   "Pick a pair with Ctrl K, then run a full analysis. I'll pull TradingView and Binance context, score it, and give you a plan with entry, stop and target. Ask follow-ups below.";
 
 const DATA_SOURCE: Record<string, string> = { binance_local: "Binance (local TA)", tradingview: "TradingView TA" };
+
+const OPTIMIZE_OPTIONS: { id: OptimizeMode; label: string; hint: string }[] = [
+  { id: "local_score", label: "Local score", hint: "Score every pack locally; optional short AI brief on the winner." },
+  { id: "majority_vote", label: "Majority vote", hint: "Vote Buy/Sell/Neutral across packs; highest-fit agreeing pack supplies levels." },
+  { id: "ai_ensemble", label: "Full AI ensemble", hint: "AI on every pack plus one synthesis pass (highest cost)." },
+];
 
 function deskKpis(levels: TradeLevels | null, market: Market | null): KpiTile[] {
   if (!levels || !market) {
@@ -74,9 +92,16 @@ function deskKpis(levels: TradeLevels | null, market: Market | null): KpiTile[] 
   ];
 }
 
-function subtitle(exchange: string, timeframe: string, market: Market | null): string {
-  if (!market) return `${exchange} · ${timeframe} · run a full analysis to score this pair.`;
-  const parts = [`${exchange} · ${timeframe}`];
+function subtitle(
+  exchange: string,
+  timeframe: string,
+  market: Market | null,
+  strategyLabel: string,
+): string {
+  if (!market) {
+    return `${exchange} · ${timeframe} · ${strategyLabel} · run a full analysis to score this pair.`;
+  }
+  const parts = [`${exchange} · ${timeframe}`, strategyLabel];
   const conf = market.confluence;
   if (isNum(conf?.score)) parts.push(`confluence ${fmtSigned(conf.score) ?? ""} / 10`);
   if (market.setup?.type) {
@@ -110,8 +135,43 @@ export default function Desk({
   const [messages, setMessages] = useState<UiMessage[]>([{ id: 0, role: "assistant", text: GREETING }]);
   const [history, setHistory] = useState<ChatMessage[]>([]);
   const [busy, setBusy] = useState(false);
+  const [strategies, setStrategies] = useState<StrategyInfo[]>([]);
+  const [strategyId, setStrategyId] = useState("desk");
+  const [optimizeMode, setOptimizeMode] = useState<OptimizeMode>("local_score");
+  const [packs, setPacks] = useState<StrategyPackResult[] | null>(null);
+  const [optimizeReason, setOptimizeReason] = useState<string | null>(null);
+  const [finalStrategyId, setFinalStrategyId] = useState<string | null>(null);
   const nextId = useRef(1);
   const firstRender = useRef(true);
+  const allStrategies = strategyId === "all";
+
+  useEffect(() => {
+    api
+      .strategies()
+      .then((res) => {
+        setStrategies(res.strategies);
+        if (res.default) setStrategyId((cur) => cur || res.default);
+      })
+      .catch(() => undefined);
+  }, []);
+
+  const strategyLabel = allStrategies
+    ? "All strategies"
+    : (strategies.find((s) => s.id === strategyId)?.label ?? "Desk (default)");
+  const strategyMeta = strategies.find((s) => s.id === strategyId);
+  const packPrimary =
+    !allStrategies && strategyId !== "desk" && strategyMeta?.primary_tf ? strategyMeta.primary_tf : null;
+  const packContext = strategyMeta?.context_tfs?.filter((t) => t !== packPrimary) ?? [];
+  const chartTf = packPrimary ?? timeframe;
+  const packNote = (() => {
+    if (!packPrimary) return null;
+    const parts = [`${packPrimary} (primary)`, ...packContext];
+    const chartBit =
+      chartTf.toLowerCase() !== timeframe.toLowerCase()
+        ? ` · chart follows ${chartTf} (desk bar ${timeframe})`
+        : "";
+    return `Pack data: ${parts.join(", ")}${chartBit}`;
+  })();
 
   const push = (m: Omit<UiMessage, "id">): number => {
     const id = nextId.current++;
@@ -120,7 +180,7 @@ export default function Desk({
   };
   const drop = (id: number) => setMessages((list) => list.filter((m) => m.id !== id));
 
-  // A plan belongs to one pair and timeframe; clear it when either changes.
+  // A plan belongs to one pair, timeframe and strategy; clear it when any change.
   useEffect(() => {
     if (firstRender.current) {
       firstRender.current = false;
@@ -128,29 +188,70 @@ export default function Desk({
     }
     setLevels(null);
     setMarket(null);
+    setPacks(null);
+    setOptimizeReason(null);
+    setFinalStrategyId(null);
     setHistory([]);
-    push({ role: "assistant", text: `Switched to ${exchange}:${symbol} · ${timeframe}.`, quiet: true });
-  }, [symbol, exchange, timeframe]);
+    const label =
+      strategyId === "all"
+        ? "All strategies"
+        : (strategies.find((s) => s.id === strategyId)?.label ?? strategyId);
+    push({
+      role: "assistant",
+      text: `Switched to ${exchange}:${symbol} · ${timeframe} · ${label}.`,
+      quiet: true,
+    });
+    // strategies catalog load must not wipe an open plan
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- intentional: only pair/tf/strategy id
+  }, [symbol, exchange, timeframe, strategyId]);
 
   async function runAnalyze() {
     if (busy) return;
     setBusy(true);
-    push({ role: "user", text: `Full analysis for ${exchange}:${symbol} (${timeframe})` });
-    const pending = push({ role: "assistant", text: "Pulling market data and thinking…", thinking: true });
+    const optHint = allStrategies ? ` · ${OPTIMIZE_OPTIONS.find((o) => o.id === optimizeMode)?.label}` : "";
+    push({
+      role: "user",
+      text: `Full analysis for ${exchange}:${symbol} (${timeframe}) · ${strategyLabel}${optHint}`,
+    });
+    const pending = push({
+      role: "assistant",
+      text: allStrategies ? "Running every strategy pack…" : "Pulling market data and thinking…",
+      thinking: true,
+    });
     try {
-      const res = await api.analyze({ symbol, exchange, timeframe });
+      const res = await api.analyze({
+        symbol,
+        exchange,
+        timeframe,
+        strategy_id: strategyId,
+        ...(allStrategies ? { optimize_mode: optimizeMode } : {}),
+      });
       drop(pending);
       setLevels(res.levels);
       setMarket(res.market);
+      setPacks(res.packs ?? null);
+      setFinalStrategyId(res.final_strategy_id ?? (allStrategies ? res.strategy_id : null));
+      setOptimizeReason(
+        res.optimize_mode
+          ? `Mode ${res.optimize_mode}; winner ${res.final_strategy_id ?? res.strategy_id}`
+          : null,
+      );
       push({ role: "assistant", text: res.analysis, levels: res.levels, provider: res.provider });
       setHistory((h) => [
         ...h,
-        { role: "user", content: `Full analysis for ${exchange}:${symbol}` },
+        { role: "user", content: `Full analysis for ${exchange}:${symbol} (${res.strategy_label})` },
         { role: "assistant", content: res.analysis },
       ]);
       if (res.provider === "offline") toast("No AI selected, so this is the deterministic plan only. Restart and pick one.");
+      if (res.timeframe !== timeframe) {
+        toast(`Strategy used ${res.timeframe} (desk was ${timeframe}).`);
+      }
       if (res.market.recorded_signal_id) {
-        toast("Signal archived for later verification.");
+        toast(
+          allStrategies
+            ? `Signal archived. Open #/signals/${res.market.recorded_signal_id} for every pack.`
+            : "Signal archived for later verification.",
+        );
         onSignalRecorded();
       }
     } catch (err) {
@@ -167,7 +268,14 @@ export default function Desk({
     push({ role: "user", text: message });
     const pending = push({ role: "assistant", text: "Thinking…", thinking: true });
     try {
-      const res = await api.chat({ symbol, exchange, timeframe, message, history: history.slice(-8) });
+      const res = await api.chat({
+        symbol,
+        exchange,
+        timeframe,
+        strategy_id: allStrategies ? "desk" : strategyId,
+        message,
+        history: history.slice(-8),
+      });
       drop(pending);
       push({ role: "assistant", text: res.reply, provider: res.provider });
       setHistory((h) => [...h, { role: "user", content: message }, { role: "assistant", content: res.reply }]);
@@ -207,9 +315,46 @@ export default function Desk({
     <Stack spacing={2}>
       <PageHeader
         title={symbol}
-        subtitle={subtitle(exchange, timeframe, market)}
+        subtitle={subtitle(exchange, timeframe, market, strategyLabel)}
         actions={
           <>
+            <FormControl size="small" sx={{ minWidth: 180 }}>
+              <InputLabel id="desk-strategy-label">Strategy</InputLabel>
+              <Select
+                labelId="desk-strategy-label"
+                label="Strategy"
+                value={strategyId}
+                onChange={(e) => setStrategyId(String(e.target.value))}
+                disabled={busy}
+              >
+                <MenuItem value="all" title="Run every pack and pick a final plan">
+                  All strategies
+                </MenuItem>
+                {(strategies.length ? strategies : [{ id: "desk", label: "Desk (default)", summary: "" }]).map((s) => (
+                  <MenuItem key={s.id} value={s.id} title={s.summary}>
+                    {s.label}
+                  </MenuItem>
+                ))}
+              </Select>
+            </FormControl>
+            {allStrategies ? (
+              <FormControl size="small" sx={{ minWidth: 200 }}>
+                <InputLabel id="desk-optimize-label">Optimization</InputLabel>
+                <Select
+                  labelId="desk-optimize-label"
+                  label="Optimization"
+                  value={optimizeMode}
+                  onChange={(e) => setOptimizeMode(e.target.value as OptimizeMode)}
+                  disabled={busy}
+                >
+                  {OPTIMIZE_OPTIONS.map((o) => (
+                    <MenuItem key={o.id} value={o.id} title={o.hint}>
+                      {o.label}
+                    </MenuItem>
+                  ))}
+                </Select>
+              </FormControl>
+            ) : null}
             <ActionButton icon={<BookmarkAddOutlined />} disabled={!levels} onClick={() => void logToJournal()}>
               Log to journal
             </ActionButton>
@@ -219,6 +364,51 @@ export default function Desk({
           </>
         }
       />
+      {allStrategies ? (
+        <Typography variant="body2" sx={{ color: "text.secondary" }}>
+          {OPTIMIZE_OPTIONS.find((o) => o.id === optimizeMode)?.hint}
+          {optimizeReason ? ` · ${optimizeReason}` : ""}
+          {market?.recorded_signal_id ? (
+            <>
+              {" · "}
+              <Typography
+                component="a"
+                href={`#/signals/${market.recorded_signal_id}`}
+                variant="body2"
+                sx={{ color: "primary.main" }}
+              >
+                Open signal detail
+              </Typography>
+            </>
+          ) : null}
+        </Typography>
+      ) : null}
+      {packNote ? (
+        <Typography variant="body2" sx={{ color: "text.secondary" }}>
+          {packNote}
+        </Typography>
+      ) : null}
+      {packs && packs.length > 0 ? (
+        <Box sx={{ display: "flex", flexWrap: "wrap", gap: 1 }}>
+          {packs.map((p) => (
+            <Typography
+              key={p.strategy_id}
+              variant="caption"
+              sx={{
+                px: 1,
+                py: 0.5,
+                border: 1,
+                borderColor: "divider",
+                borderRadius: 1,
+                fontWeight: p.strategy_id === finalStrategyId ? 700 : 400,
+              }}
+            >
+              {p.strategy_label}: {p.bias}
+              {isNum(p.pack_score) ? ` (${p.pack_score})` : ""}
+            </Typography>
+          ))}
+        </Box>
+      ) : null}
 
       <PulseStrip active={active} />
 
@@ -238,7 +428,7 @@ export default function Desk({
               ) : null}
             </Stack>
             <Box sx={{ display: "grid", gridTemplateColumns: { xs: "minmax(0, 1fr)", md: "minmax(0, 1fr) 220px" } }}>
-              <TradingViewChart tvSymbol={tvSymbol} timeframe={timeframe} dark={dark} />
+              <TradingViewChart tvSymbol={tvSymbol} timeframe={chartTf} dark={dark} />
               <Box sx={{ p: 1.5, borderLeft: { md: 1 }, borderTop: { xs: 1, md: 0 }, borderColor: "divider", minWidth: 0 }}>
                 <LevelsBoard levels={levels} market={market} />
               </Box>

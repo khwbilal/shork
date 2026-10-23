@@ -81,20 +81,67 @@ export type Market = {
   recorded_signal_id?: string;
 };
 
+export type StrategyInfo = {
+  id: string;
+  label: string;
+  summary: string;
+  primary_tf?: string | null;
+  context_tfs?: string[];
+  incompatible_desk_tfs?: string[];
+  indicators?: string[];
+  uses_desk_pipeline?: boolean;
+};
+
+export type StrategiesResponse = {
+  strategies: StrategyInfo[];
+  default: string;
+};
+
+export type OptimizeMode = "local_score" | "ai_ensemble" | "majority_vote";
+
+export type StrategyPackResult = {
+  strategy_id: string;
+  strategy_label: string;
+  timeframe?: string;
+  bias: Bias;
+  entry?: number | null;
+  stop_loss?: number | null;
+  take_profit?: number | null;
+  confidence?: number | null;
+  reasoning?: string;
+  fit_score?: number;
+  trade_allowed?: boolean;
+  pack_score?: number;
+  analysis?: string;
+  error?: string;
+};
+
+export type MultiAnalysis = {
+  optimize_mode?: OptimizeMode | string;
+  reason?: string;
+  final_strategy_id?: string;
+  packs?: StrategyPackResult[];
+};
+
 export type AnalyzeResponse = {
   symbol: string;
   exchange: string;
   timeframe: string;
   tv_symbol: string;
+  strategy_id: string;
+  strategy_label: string;
   market: Market;
   levels: TradeLevels;
   analysis: string;
   provider: string;
+  optimize_mode?: OptimizeMode | string | null;
+  final_strategy_id?: string | null;
+  packs?: StrategyPackResult[] | null;
 };
 
 export type ChatMessage = { role: "user" | "assistant" | "system"; content: string };
 
-export type ChatResponse = { symbol: string; reply: string; provider: string };
+export type ChatResponse = { symbol: string; reply: string; provider: string; strategy_id?: string };
 
 export type HealthResponse = {
   status: string;
@@ -273,6 +320,22 @@ export type JournalEntry = {
   r_multiple?: number | null;
 };
 
+export type SignalReview = {
+  at: string;
+  price: number | null;
+  unrealized_r: number | null;
+  dist_to_stop_r: number | null;
+  dist_to_target_r: number | null;
+  stance: "hold" | "caution" | "exit_early" | null;
+  summary: string;
+  verify_status?: string | null;
+  revised_entry?: number | null;
+  revised_stop_loss?: number | null;
+  revised_take_profit?: number | null;
+  levels_changed?: boolean;
+  revise_reason?: string | null;
+};
+
 export type Signal = {
   id: string;
   created_at: string;
@@ -284,9 +347,46 @@ export type Signal = {
   stop_loss?: number;
   take_profit?: number;
   confluence?: number | null;
+  confidence?: number | null;
   status: string;
   outcome?: string | null;
   r_multiple?: number | null;
+  strategy_id?: string | null;
+  notes?: string | null;
+  live_review_json?: SignalReview[] | null;
+  multi_analysis_json?: MultiAnalysis | null;
+};
+
+export type StrategyBucket = {
+  id: string;
+  label: string;
+  n: number;
+  open: number;
+  wins: number;
+  losses: number;
+  expired: number;
+  decided: number;
+  hit_rate: number | null;
+  avg_r: number | null;
+  total_r: number;
+  reliable: boolean;
+};
+
+export type SignalDashboard = {
+  overall: StrategyBucket & { n: number };
+  by_strategy: StrategyBucket[];
+  best: string | null;
+  worst: string | null;
+  best_label: string | null;
+  worst_label: string | null;
+  min_reliable: number;
+  equity_curve: {
+    date: string;
+    cumulative_r: number;
+    cumulative_r_by_strategy: Record<string, number>;
+  }[];
+  volume_by_day: { date: string; count: number }[];
+  outcomes_by_strategy: { id: string; label: string; wins: number; losses: number; expired: number }[];
 };
 
 function apiError(body: string): string {
@@ -311,10 +411,17 @@ async function request<T>(path: string, init?: { method?: string; body?: unknown
   return (text ? JSON.parse(text) : null) as T;
 }
 
-type Pair = { symbol: string; exchange: string; timeframe: string };
+type Pair = {
+  symbol: string;
+  exchange: string;
+  timeframe: string;
+  strategy_id?: string;
+  optimize_mode?: OptimizeMode | string;
+};
 
 export const api = {
   health: () => request<HealthResponse>("/api/health"),
+  strategies: () => request<StrategiesResponse>("/api/strategies"),
   analyze: (p: Pair) => request<AnalyzeResponse>("/api/analyze", { method: "POST", body: p }),
   chat: (p: Pair & { message: string; history: ChatMessage[] }) =>
     request<ChatResponse>("/api/chat", { method: "POST", body: p }),
@@ -334,10 +441,23 @@ export const api = {
     request<JournalEntry>(`/api/journal/${encodeURIComponent(id)}/close`, { method: "POST", body: { status, exit_price } }),
   deleteJournal: (id: string) => request<{ ok: boolean }>(`/api/journal/${encodeURIComponent(id)}`, { method: "DELETE" }),
   signals: () => request<{ signals: Signal[]; stats: Stats }>("/api/signals?limit=100"),
+  getSignal: (id: string) =>
+    request<{ signal: Signal }>(`/api/signals/${encodeURIComponent(id)}`),
+  signalDashboard: () => request<SignalDashboard>("/api/signals/dashboard"),
   verifySignals: () =>
     request<{ checked: number; updated: number; stats: Stats }>("/api/signals/verify?only_open=true&limit=50", {
       method: "POST",
     }),
   verifySignal: (id: string) =>
     request<{ signal: Signal; stats: Stats }>(`/api/signals/${encodeURIComponent(id)}/verify`, { method: "POST" }),
+  reviewOpenSignals: () =>
+    request<{ checked: number; updated: number; signals: Signal[]; stats: Stats }>(
+      "/api/signals/review?only_open=true&limit=50",
+      { method: "POST" },
+    ),
+  reviewSignal: (id: string) =>
+    request<{ signal: Signal; review: SignalReview | null; stats: Stats; warning?: string | null }>(
+      `/api/signals/${encodeURIComponent(id)}/review`,
+      { method: "POST" },
+    ),
 };

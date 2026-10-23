@@ -43,6 +43,8 @@ A local crypto analysis desk: a live TradingView chart next to an AI analyst. Th
 | Feature | What it does |
 |---|---|
 | [Analysis & chat](features/analysis-and-chat.md) | Full analysis → trade plan (bias, entry, stop, target), then follow-up Q&A |
+| [Strategies](features/strategies.md) | GPTChart-style packs (SMC, scalping, breakout, …) plus Desk default; Signals filter by strategy |
+| [Dashboard](features/dashboard.md) | Hit rate, R and charts by strategy from the signal archive |
 | [Confluence score](features/confluence-score.md) | Weighted −10…+10 score that the AI is not allowed to contradict |
 | [Setup classifier](features/setup-classifier.md) | Chop / mean-revert / breakout / trend continuation, plus the chop filter |
 | [Flow, order book & liquidity](features/flow-and-liquidity.md) | Whale vs retail positioning, funding, OI, depth imbalance, liquidation clusters |

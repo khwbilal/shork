@@ -1,6 +1,7 @@
 /** Routes, timeframes and labels shared by the shell, the search and the pages. */
 export const PAGES = {
   desk: "Desk",
+  dashboard: "Dashboard",
   watchlist: "Watchlist",
   calendar: "Calendar",
   journal: "Journal",

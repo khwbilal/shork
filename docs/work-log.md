@@ -6,6 +6,12 @@ Items WL-001 to WL-014 were logged retroactively on 2026-10-21, when the ruleset
 
 | Id | Title | Status |
 |---|---|---|
+| WL-054 | Multi-strategy analysis + signal detail page | done |
+| WL-053 | Strategy-owned stop distance and live-review bands | done |
+| WL-052 | Open signal live review (keep original + stance history) | done |
+| WL-051 | Strategy-owned multi-TF packs + Performance dashboard | done |
+| WL-050 | Strategy-based analysis (GPTChart-style packs + Signals filter) | done |
+| WL-049 | Signals page: timeframe tabs and status filter | done |
 | WL-048 | Task Scheduler shows result 0 when a job fails | open |
 | WL-047 | Convert the portal UI to MUI | in progress (A+B coded; UI check, phase C left) |
 | WL-046 | Financial results for the last 8 quarters per instrument | open; after WL-028, WL-044 |
@@ -56,6 +62,42 @@ Items WL-001 to WL-014 were logged retroactively on 2026-10-21, when the ruleset
 | WL-001 | Claude API provider next to Cursor and OpenAI | done |
 
 ## Items
+
+### WL-054: Multi-strategy analysis + signal detail page
+
+- **Context:** Analyze one coin against all strategies, pick a final plan via a user-chosen optimization method (local score, AI ensemble, majority vote), keep every pack's result on the signal, open a dedicated detail page from Signals, and on live review append revised stop/target without overwriting the original plan.
+- **Acceptance:** strategy_id=all + optimize_mode; multi_analysis_json migration; GET /api/signals/{id}; Desk All + Optimization UI; #/signals/:id page; live review revised levels; tests and docs; gate green.
+- **Status:** done.
+- **Outcome:** `multi_analyze.py` with local_score / majority_vote / ai_ensemble; migration 007; GET signal detail; live review appends revised SL/TP; Desk All + Optimization; `#/signals/:id` page; Signals row navigates. Tests in `test_multi_analyze.py`; 192 pytest pass; ruff/eslint/tsc/build 0.
+
+
+### WL-053: Strategy-owned stop distance and live-review bands
+
+- **Context:** Stop placement and live-review stance bands are global (0.75 to 2 ATR, fixed Hold/Caution/Exit R thresholds). Sheryar wants both to follow each strategy playbook (tight for scalping, wider for SMC/retracement).
+- **Acceptance:** each strategy has a risk profile (stop ATR min/max, min R:R for the prompt, live-review thresholds); suggested levels and AI prompt use those stop bands; live review stance uses the signal's strategy bands; a stop hit is still -1R by definition; tests and docs updated; gate green.
+- **Status:** done.
+- **Outcome:** `RiskProfile` on every strategy; suggested levels + AI RISK line use stop ATR bands; live review uses strategy review bands via `strategy_id`. Stop-out remains -1R. Tests in `test_strategies` / `test_live_review`; docs strategies + signals + ai-providers; 185 pytest pass, ruff 0, smoke offline analyze ok.
+
+### WL-052: Open signal live review (keep original + stance history)
+
+- **Context:** Sheryar wants a button to re-check open signals for live advice (stay, wait, or exit early) without overwriting the original plan. Each review should be kept as history on the same signal.
+- **Acceptance:** migration adds `live_review_json`; `POST /api/signals/{id}/review` and bulk review; originals frozen; stance Hold/Caution/Exit early from live price; Signals UI has Live review, Now/Stance columns and a detail view with original + history; gate green.
+- **Status:** done.
+- **Outcome:** Migration 006; `live_review_signal` / `live_review_all` append reviews after verify; originals never overwritten. Signals page: Live review open, Review per row, Now/Stance columns, detail dialog with original + history. Docs updated. Tests in `test_live_review.py`; frontend build 0.
+
+### WL-051: Strategy-owned multi-TF packs + Performance dashboard
+
+- **Context:** Named strategies should always use their own primary TF and fetch full indicator packs for every required timeframe (primary plus context). Sheryar also wants a dashboard of signal stats by strategy with useful charts over time.
+- **Acceptance:** `resolve_timeframes` always picks pack `primary_tf` for named strategies; every declared TF is in `strategy_pack.timeframes`; Desk note lists all pack TFs and the chart follows pack primary; `GET /api/signals/dashboard` powers a Dashboard page with KPI cards and six charts (hit rate, avg R, cumulative R, outcomes, volume, sample vs hit rate); gate green.
+- **Status:** done.
+- **Outcome:** Named strategies always own primary TF; every needed TF is fetched into `strategy_pack.timeframes`. Desk shows pack note and chart follows pack primary. Dashboard API + page with recharts (six charts + KPIs). Docs: [dashboard](features/dashboard.md). Tests for TF ownership, multi-TF pack mock, and dashboard aggregates; frontend build 0.
+
+### WL-050: Strategy-based analysis (GPTChart-style packs + Signals filter)
+
+- **Context:** Sheryar wants analysis against named strategies like gptchart.ai (SMC, liquidity sweep, breakout, pullback, retracement, scalping, EMA volatility), with a Desk default that keeps today's pipeline. The backend should fetch the timeframes and indicators each strategy needs. Signals should filter and score by strategy.
+- **Acceptance:** `GET /api/strategies` lists desk plus the seven templates; Desk has a Strategy select (default desk); `POST /api/analyze` takes `strategy_id`, fetches the pack, injects playbook rules, echoes strategy on the response; named strategies skip desk confluence/chop guards; signals store `strategy_id` (migration 005); Signals page filters by strategy with KPIs scoped to the filter; gate green.
+- **Status:** done.
+- **Outcome:** Registry in `strategies.py` (desk + 7 packs). Named strategies fetch primary and context TFs via local Binance TA with swings, BOS/CHoCH, equal levels, Fib and squeeze helpers; liquidity/book when the pack needs them. Desk pipeline unchanged. Analyze/chat take `strategy_id`; migration 005 adds `signals.strategy_id`. Desk Strategy select; Signals strategy filter, column and scoped KPIs. Docs: [strategies](features/strategies.md). Tests: `test_strategies.py` plus db import updated; ruff clean; frontend build 0.
 
 ### WL-048: Task Scheduler shows result 0 when a job fails
 

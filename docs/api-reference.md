@@ -11,6 +11,8 @@ Errors use FastAPI's shape, `{"detail": "…"}`: `400` for bad input, `404` when
 | `GET` | `/api/health` | `{status, app, ai_provider, ai_model, tradingview_ready}`. `ai_provider` is `claude_code`, `claude`, `cursor`, `openai` or `none`. |
 | `POST` | `/api/analyze` | Full analysis → plan + levels + snapshot. [Details](features/analysis-and-chat.md#full-analysis) |
 | `POST` | `/api/chat` | Follow-up question with a fresh snapshot. [Details](features/analysis-and-chat.md#chat) |
+| `GET` | `/api/strategies` | Strategy catalog (desk + GPTChart-style packs), each with a `risk` profile (stop ATR bands + live-review thresholds). [Details](features/strategies.md) |
+| `GET` | `/api/signals/{id}` | One signal with `multi_analysis_json` and `live_review_json` (WL-054) |
 | `GET` | `/api/market/{symbol}?exchange=BINANCE&timeframe=1h` | Raw snapshot, for debugging. [Shape](analysis-pipeline.md#snapshot-shape-top-level-keys) |
 | `GET` | `/api/symbols/search?q=&exchange=BINANCE&limit=25` | Search by symbol or name. Each result adds `type`, `name` and `market`. [Details](features/symbol-search.md) |
 | `GET` | `/api/calendar?days=7&kind=` | Upcoming events and the status of each source. [Details](features/calendar.md) |
@@ -22,22 +24,24 @@ Errors use FastAPI's shape, `{"detail": "…"}`: `400` for bad input, `404` when
 
 | Field | Type | Default |
 |---|---|---|
-| `symbol` | string | required: `SOLUSDT`, `BTWUSDT.P`, … |
+| `symbol` | string | required: `SOLUSDT`, `BTCUSDT.P`, … |
 | `exchange` | string | `BINANCE` |
 | `timeframe` | string | `1h` (`15m`, `1h`, `4h`, `1D`) |
+| `strategy_id` | string | `desk` (or `all` for every pack; see [strategies](features/strategies.md)) |
+| `optimize_mode` | string | `local_score` (also `majority_vote`, `ai_ensemble`); used when `strategy_id` is `all` |
 | `custom_prompt` | string \| null | Extra trader notes appended to the prompt |
 
-Returns `symbol, exchange, timeframe, tv_symbol, market, levels, analysis, provider`. `market.correlation` and `market.upcoming_events` are described in the [analysis pipeline](analysis-pipeline.md#snapshot-shape-top-level-keys). `provider` is `claude_code`, `claude`, `cursor`, `openai` or `offline`.
+Returns `symbol, exchange, timeframe, tv_symbol, strategy_id, strategy_label, market, levels, analysis, provider`, and when multi: `optimize_mode`, `final_strategy_id`, `packs`. `market.correlation` and `market.upcoming_events` are described in the [analysis pipeline](analysis-pipeline.md#snapshot-shape-top-level-keys). `provider` is `claude_code`, `claude`, `cursor`, `openai`, `offline`, or `local_score`.
 
 ### `POST /api/chat`
 
 | Field | Type | Default |
 |---|---|---|
-| `symbol`, `exchange`, `timeframe` | as above | |
+| `symbol`, `exchange`, `timeframe`, `strategy_id` | as above | |
 | `message` | string | required |
 | `history` | `[{role, content}]` | `[]`. The last 6 are used. |
 
-Returns `symbol, reply, provider, market_snapshot (null)`.
+Returns `symbol, reply, provider, strategy_id, market_snapshot (null)`.
 
 ### `GET /api/pulse`
 
@@ -82,8 +86,11 @@ Added in WL-036. `{available, symbol, market: spot|usdm|spot_or_usdm, windows: {
 
 | Method | Path | Purpose |
 |---|---|---|
-| `GET` | `/api/signals?limit=80&symbol=` | Archived signals + stats |
+| `GET` | `/api/signals?limit=80&symbol=&strategy_id=` | Archived signals + stats (optional strategy filter) |
+| `GET` | `/api/signals/dashboard` | Strategy performance cards and chart series. [Details](features/dashboard.md) |
 | `POST` | `/api/signals/verify?symbol=&only_open=true&limit=50` | Verify many |
+| `POST` | `/api/signals/review?only_open=true&limit=50` | Live review open signals (append stance history). [Details](features/signals.md#live-review-wl-052) |
+| `POST` | `/api/signals/{id}/review` | Live review one open signal |
 | `POST` | `/api/signals/{id}/verify` | Re-check one (forced) |
 
 [Details](features/signals.md)

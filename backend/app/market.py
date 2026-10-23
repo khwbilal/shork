@@ -8,11 +8,14 @@ import logging
 from typing import Any
 
 from .binance_ta import (
+    apply_strategy_risk_to_analysis,
     coin_analysis_usable,
     compute_local_analysis,
     normalize_timeframe,
+    pick_indicator_blocks,
 )
 from .config import Settings
+from .strategies import get_strategy, needed_timeframes, resolve_timeframes, risk_public, strategy_public
 
 logger = logging.getLogger(__name__)
 
@@ -62,15 +65,237 @@ def _to_dict(value: Any) -> Any:
         return {"raw": str(value)}
 
 
+def _attach_strategy_meta(
+    context: dict[str, Any],
+    *,
+    strategy_id: str,
+    primary_tf: str,
+    context_tfs: list[str],
+    overridden: bool,
+    desk_tf: str,
+) -> None:
+    strategy = get_strategy(strategy_id)
+    context["strategy_id"] = strategy.id
+    context["strategy"] = strategy_public(strategy)
+    context["strategy_tf"] = {
+        "desk_tf": normalize_timeframe(desk_tf),
+        "primary_tf": primary_tf,
+        "context_tfs": context_tfs,
+        "overridden": overridden,
+    }
+    if strategy.prompt_rules:
+        context["strategy_rules"] = strategy.prompt_rules
+    context["strategy_risk"] = risk_public(strategy.risk)
+
+
+def _apply_risk_to_coin(coin: dict[str, Any] | None, strategy) -> dict[str, Any] | None:
+    if not isinstance(coin, dict):
+        return coin
+    r = strategy.risk
+    return apply_strategy_risk_to_analysis(
+        coin,
+        stop_atr_min=r.stop_atr_min,
+        stop_atr_max=r.stop_atr_max,
+        target_r_min=r.target_r_min,
+    )
+
+
+def _build_named_strategy_pack(
+    pair: str,
+    exchange: str,
+    desk_tf: str,
+    settings: Settings,
+    strategy_id: str,
+) -> dict[str, Any]:
+    """Fetch only the TFs and indicators the named strategy needs."""
+    strategy = get_strategy(strategy_id)
+    primary_tf, context_tfs, overridden = resolve_timeframes(strategy, desk_tf)
+    context: dict[str, Any] = {
+        "symbol": pair,
+        "exchange": exchange.upper(),
+        "timeframe": primary_tf,
+        "tv_symbol": tv_symbol(pair, exchange),
+        "yahoo_symbol": yahoo_symbol(pair),
+        "data_source": "binance_local",
+    }
+    _attach_strategy_meta(
+        context,
+        strategy_id=strategy.id,
+        primary_tf=primary_tf,
+        context_tfs=context_tfs,
+        overridden=overridden,
+        desk_tf=desk_tf,
+    )
+
+    # Fetch a full indicator pack for every required TF (primary + all context).
+    needed = needed_timeframes(strategy, desk_tf)
+    frames: dict[str, Any] = {}
+    primary: dict[str, Any] = {"ok": False}
+    risk = strategy.risk
+    for tf in needed:
+        try:
+            analysis = compute_local_analysis(
+                pair,
+                tf,
+                stop_atr_min=risk.stop_atr_min,
+                stop_atr_max=risk.stop_atr_max,
+                target_r_min=risk.target_r_min,
+            )
+            frames[tf] = pick_indicator_blocks(analysis, strategy.indicators)
+            if tf == primary_tf:
+                primary = analysis
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("strategy TA failed for %s %s: %s", pair, tf, exc)
+            frames[tf] = {"error": str(exc), "available": False}
+            if tf == primary_tf:
+                primary = {"error": str(exc), "ok": False}
+    context["coin_analysis"] = _apply_risk_to_coin(
+        primary if isinstance(primary, dict) else None, strategy
+    ) or primary
+    context["strategy_pack"] = {
+        "id": strategy.id,
+        "label": strategy.label,
+        "indicators": list(strategy.indicators),
+        "needed_tfs": needed,
+        "timeframes": frames,
+    }
+
+    # Light MTF alignment from pack frames (structure / EMA trend).
+    mtf_notes = []
+    for tf_key, block in frames.items():
+        if not isinstance(block, dict) or block.get("error"):
+            continue
+        struct = block.get("structure") or {}
+        ema = block.get("ema") or {}
+        mtf_notes.append(
+            {
+                "tf": tf_key,
+                "structure_bias": struct.get("bias"),
+                "bos": struct.get("bos"),
+                "choch": struct.get("choch"),
+                "ema20": ema.get("ema20"),
+                "ema50": ema.get("ema50"),
+            }
+        )
+    context["mtf_local"] = {
+        "alignment": "strategy_pack",
+        "timeframes": {n["tf"]: n for n in mtf_notes},
+    }
+
+    if strategy.needs_orderbook:
+        try:
+            from .orderbook import fetch_orderbook_imbalance
+
+            context["orderbook"] = fetch_orderbook_imbalance(pair)
+        except Exception as exc:  # noqa: BLE001
+            context["orderbook"] = {"available": False, "error": str(exc)}
+
+    if strategy.needs_liquidity:
+        try:
+            from .flow import fetch_flow_snapshot
+            from .liquidity import fetch_liquidity_map
+
+            flow = fetch_flow_snapshot(pair, primary_tf)
+            context["flow"] = flow
+            book = context.get("orderbook") if isinstance(context.get("orderbook"), dict) else {}
+            context["liquidity"] = fetch_liquidity_map(
+                pair,
+                mark_price=flow.get("mark_price"),
+                open_interest=flow.get("open_interest"),
+                whale_long_pct=flow.get("whale_long_pct"),
+                retail_long_pct=flow.get("retail_long_pct"),
+                funding_rate=flow.get("funding_rate"),
+                oi_change_pct=flow.get("oi_change_pct"),
+                price_change_24h_pct=flow.get("price_change_24h_pct"),
+                orderbook=book,
+                coinglass_api_key=getattr(settings, "coinglass_api_key", None),
+            )
+        except Exception as exc:  # noqa: BLE001
+            context["liquidity"] = {"available": False, "error": str(exc)}
+            context.setdefault("flow", {"available": False})
+
+    # Soft fit score from primary structure / ADX / squeeze so the model has a bias hint
+    # without desk chop / confluence hard Neutral.
+    fit = _strategy_fit(strategy.id, primary if isinstance(primary, dict) else {})
+    context["strategy_fit"] = fit
+    context["setup"] = {
+        "type": strategy.id,
+        "trade_allowed": fit.get("trade_allowed", True),
+        "prefer_bias": fit.get("bias", "Neutral"),
+        "summary": fit.get("summary", strategy.summary),
+    }
+    context["confluence"] = {
+        "score": fit.get("score", 0),
+        "bias": fit.get("bias", "Neutral"),
+        "confidence": fit.get("confidence"),
+        "summary": fit.get("summary"),
+        "guardrail": "strategy_pack",
+    }
+
+    if isinstance(primary, dict):
+        px = (primary.get("price_data") or {}).get("current_price")
+        if px:
+            context["yahoo_price"] = {"price": px, "source": "binance_local"}
+
+    return context
+
+
+def _strategy_fit(strategy_id: str, primary: dict[str, Any]) -> dict[str, Any]:
+    """Lightweight bias hint for named strategies (not the desk confluence engine)."""
+    struct = primary.get("structure") if isinstance(primary.get("structure"), dict) else {}
+    adx = primary.get("adx") if isinstance(primary.get("adx"), dict) else {}
+    squeeze = primary.get("squeeze") if isinstance(primary.get("squeeze"), dict) else {}
+    rvol = primary.get("relative_volume")
+    bias = struct.get("bias") or "Neutral"
+    score = 0.0
+    if bias == "Bullish":
+        score += 2.5
+    elif bias == "Bearish":
+        score -= 2.5
+    if struct.get("bos"):
+        score += 1.5 if struct.get("bos") == "bullish" else -1.5
+    if struct.get("choch"):
+        score += 1.0 if struct.get("choch") == "bullish" else -1.0
+    adx_val = adx.get("value")
+    if isinstance(adx_val, (int, float)) and adx_val >= 20:
+        score *= 1.15
+    if strategy_id == "ema_volatility" and squeeze.get("active"):
+        score *= 0.5  # wait for expansion
+    if strategy_id == "breakout" and isinstance(rvol, (int, float)) and rvol < 1.0:
+        score *= 0.6
+    score = round(max(-8.0, min(8.0, score)), 2)
+    out_bias = "Neutral"
+    if score >= 2.5:
+        out_bias = "Buy"
+    elif score <= -2.5:
+        out_bias = "Sell"
+    trade_allowed = abs(score) >= 2.0
+    return {
+        "score": score,
+        "bias": out_bias,
+        "confidence": round(min(0.85, 0.35 + abs(score) / 12), 2),
+        "trade_allowed": trade_allowed,
+        "summary": (
+            f"{strategy_id} fit {score:+.1f}; structure={struct.get('note') or bias}; "
+            f"trade_ok={trade_allowed}"
+        ),
+    }
+
+
 def fetch_coin_context(
     symbol: str,
     exchange: str,
     timeframe: str,
     settings: Settings,
+    strategy_id: str | None = None,
 ) -> dict[str, Any]:
     """Aggregate single-coin TA; fall back to Binance klines when TV cliffs."""
     pair = normalize_pair(symbol)
     exchange = exchange.upper()
+    strategy = get_strategy(strategy_id)
+    if not strategy.uses_desk_pipeline:
+        return _build_named_strategy_pack(pair, exchange, timeframe, settings, strategy.id)
+
     tf = normalize_timeframe(timeframe)
     context: dict[str, Any] = {
         "symbol": pair,
@@ -79,6 +304,14 @@ def fetch_coin_context(
         "tv_symbol": tv_symbol(symbol, exchange),
         "yahoo_symbol": yahoo_symbol(pair),
     }
+    _attach_strategy_meta(
+        context,
+        strategy_id=strategy.id,
+        primary_tf=tf,
+        context_tfs=[],
+        overridden=False,
+        desk_tf=timeframe,
+    )
 
     coin: dict[str, Any] | None = None
     tv_ok = False
@@ -94,10 +327,17 @@ def fetch_coin_context(
         logger.warning("TradingView analyze unavailable: %s", exc)
         coin = {"error": str(exc), "ok": False}
 
+    risk = strategy.risk
     if not tv_ok:
         logger.info("Using Binance local TA fallback for %s %s", pair, tf)
         try:
-            local = compute_local_analysis(pair, tf)
+            local = compute_local_analysis(
+                pair,
+                tf,
+                stop_atr_min=risk.stop_atr_min,
+                stop_atr_max=risk.stop_atr_max,
+                target_r_min=risk.target_r_min,
+            )
             # Keep TV error note but prefer local indicators
             if isinstance(coin, dict) and coin.get("error"):
                 local["tv_error"] = coin.get("error")
@@ -111,7 +351,13 @@ def fetch_coin_context(
         context["data_source"] = "tradingview"
         # Still enrich with local MACD/Stoch/RVOL when TV snapshot is thin
         try:
-            local = compute_local_analysis(pair, tf)
+            local = compute_local_analysis(
+                pair,
+                tf,
+                stop_atr_min=risk.stop_atr_min,
+                stop_atr_max=risk.stop_atr_max,
+                target_r_min=risk.target_r_min,
+            )
             if isinstance(coin, dict):
                 for key in (
                     "macd",
@@ -135,7 +381,7 @@ def fetch_coin_context(
         except Exception as exc:  # noqa: BLE001
             logger.warning("Local enrich skipped: %s", exc)
 
-    context["coin_analysis"] = coin
+    context["coin_analysis"] = _apply_risk_to_coin(coin, strategy) or coin
 
     # Skip MTF when TV is already cliffing — it burns retries and empties the snapshot
     if tv_ok:
@@ -274,9 +520,10 @@ async def fetch_coin_context_async(
     exchange: str,
     timeframe: str,
     settings: Settings,
+    strategy_id: str | None = None,
 ) -> dict[str, Any]:
     return await asyncio.to_thread(
-        fetch_coin_context, symbol, exchange, timeframe, settings
+        fetch_coin_context, symbol, exchange, timeframe, settings, strategy_id
     )
 
 
@@ -439,9 +686,56 @@ def condense_market_context(context: dict[str, Any]) -> dict[str, Any]:
             "summary": (context.get("setup") or {}).get("summary"),
         },
         "confluence": context.get("confluence"),
+        "strategy_id": context.get("strategy_id"),
+        "strategy": context.get("strategy"),
+        "strategy_tf": context.get("strategy_tf"),
+        "strategy_rules": context.get("strategy_rules"),
+        "strategy_risk": context.get("strategy_risk"),
+        "strategy_fit": context.get("strategy_fit"),
+        "strategy_pack": _condensed_strategy_pack(context.get("strategy_pack")),
         "upcoming_events": context.get("upcoming_events"),
         # After the decision fields; reordering in context_to_prompt_block keeps them first.
         "correlation": _condensed_correlation(context.get("correlation")),
+    }
+
+
+def _condensed_strategy_pack(pack: Any) -> dict[str, Any] | None:
+    if not isinstance(pack, dict):
+        return None
+    frames = pack.get("timeframes") if isinstance(pack.get("timeframes"), dict) else {}
+    slim: dict[str, Any] = {}
+    for tf, block in frames.items():
+        if not isinstance(block, dict):
+            continue
+        slim[tf] = {
+            k: block.get(k)
+            for k in (
+                "price_data",
+                "ema",
+                "rsi",
+                "atr",
+                "adx",
+                "bollinger",
+                "vwap",
+                "stochastic",
+                "relative_volume",
+                "swings",
+                "equal_levels",
+                "structure",
+                "fibonacci",
+                "squeeze",
+                "suggested_levels",
+                "support_resistance",
+                "error",
+            )
+            if k in block
+        }
+    return {
+        "id": pack.get("id"),
+        "label": pack.get("label"),
+        "indicators": pack.get("indicators"),
+        "needed_tfs": pack.get("needed_tfs"),
+        "timeframes": slim,
     }
 
 
@@ -452,9 +746,36 @@ def _condensed_correlation(corr: Any) -> dict[str, Any]:
 
 
 # Sections the guardrails depend on go first so trimming can never reach them.
-_PROMPT_FIRST = ("pair", "timeframe", "price", "setup", "confluence")
+_PROMPT_FIRST = (
+    "pair",
+    "timeframe",
+    "price",
+    "setup",
+    "confluence",
+    "strategy_id",
+    "strategy_rules",
+    "strategy_risk",
+    "strategy_fit",
+    "strategy_pack",
+)
 # Dropped whole, in this order, when the block is still over budget.
-_PROMPT_DROP_ORDER = ("pivots", "level_hints", "sma50", "sma200", "macd_histogram", "trend_line", "regime", "correlation")
+_PROMPT_DROP_ORDER = (
+    "pivots",
+    "level_hints",
+    "sma50",
+    "sma200",
+    "macd_histogram",
+    "trend_line",
+    "regime",
+    "correlation",
+    "strategy_tf",
+    "upcoming_events",
+    "orderbook",
+    # strategy_pack stays until late so multi-TF frames survive trimming
+    "flow",
+    "liquidity",
+    "strategy_pack",
+)
 _TRUNC_MARKER = " …[truncated]"
 
 

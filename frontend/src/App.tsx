@@ -8,14 +8,19 @@ import { Rail, TopBar } from "./components/Shell";
 import { PAGES, TIMEFRAMES, type PageKey } from "./lib/nav";
 import { readPref, readRecents, rememberRecent, writePref } from "./lib/storage";
 import CalendarPage from "./pages/Calendar";
+import Dashboard from "./pages/Dashboard";
 import Desk from "./pages/Desk";
 import Journal from "./pages/Journal";
+import SignalDetail from "./pages/SignalDetail";
 import Signals from "./pages/Signals";
 import Watchlist from "./pages/Watchlist";
 
-function pageFromHash(): PageKey {
-  const name = window.location.hash.replace(/^#\/?/, "").split("/")[0];
-  return name in PAGES ? (name as PageKey) : "desk";
+function parseHash(): { page: PageKey; signalId: string | null } {
+  const parts = window.location.hash.replace(/^#\/?/, "").split("/").filter(Boolean);
+  const name = parts[0] ?? "desk";
+  const page = name in PAGES ? (name as PageKey) : "desk";
+  const signalId = page === "signals" && parts[1] ? parts[1] : null;
+  return { page, signalId };
 }
 
 function initialTimeframe(): string {
@@ -25,7 +30,9 @@ function initialTimeframe(): string {
 
 export default function App() {
   const recent = readRecents()[0];
-  const [page, setPage] = useState<PageKey>(pageFromHash);
+  const initialHash = parseHash();
+  const [page, setPage] = useState<PageKey>(initialHash.page);
+  const [signalId, setSignalId] = useState<string | null>(initialHash.signalId);
   const [symbol, setSymbol] = useState(recent?.symbol ?? "SOLUSDT");
   const [exchange, setExchange] = useState(recent?.exchange ?? "BINANCE");
   const [tvSymbol, setTvSymbol] = useState(recent?.tv_symbol ?? "BINANCE:SOLUSDT");
@@ -45,7 +52,9 @@ export default function App() {
 
   useEffect(() => {
     const onHash = () => {
-      setPage(pageFromHash());
+      const h = parseHash();
+      setPage(h.page);
+      setSignalId(h.signalId);
       setNavOpen(false);
     };
     window.addEventListener("hashchange", onHash);
@@ -75,6 +84,10 @@ export default function App() {
 
   const goTo = (p: PageKey) => {
     window.location.hash = `#/${p}`;
+  };
+
+  const goToSignal = (id: string) => {
+    window.location.hash = `#/signals/${encodeURIComponent(id)}`;
   };
 
   const openOnDesk = (s: string, ex?: string, tv?: string) => {
@@ -133,6 +146,9 @@ export default function App() {
                 onJournalChanged={() => setJournalVersion((v) => v + 1)}
               />
             </Box>
+            <Box hidden={page !== "dashboard"}>
+              <Dashboard active={page === "dashboard"} version={signalsVersion} />
+            </Box>
             <Box hidden={page !== "watchlist"}>
               <Watchlist timeframe={timeframe} onOpen={(s) => openOnDesk(s, "BINANCE")} />
             </Box>
@@ -143,7 +159,20 @@ export default function App() {
               <Journal active={page === "journal"} version={journalVersion} onStats={onJournalStats} />
             </Box>
             <Box hidden={page !== "signals"}>
-              <Signals active={page === "signals"} version={signalsVersion} onStats={onSignalStats} />
+              {signalId ? (
+                <SignalDetail
+                  signalId={signalId}
+                  onBack={() => goTo("signals")}
+                  onReviewed={() => setSignalsVersion((v) => v + 1)}
+                />
+              ) : (
+                <Signals
+                  active={page === "signals" && !signalId}
+                  version={signalsVersion}
+                  onStats={onSignalStats}
+                  onOpenSignal={goToSignal}
+                />
+              )}
             </Box>
           </Box>
         </Box>

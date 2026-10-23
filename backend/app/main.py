@@ -39,9 +39,11 @@ from .schemas import (
     JournalClose,
     JournalCreate,
     PulseResponse,
+    StrategiesResponse,
     TradeLevels,
     WatchlistRequest,
 )
+from .strategies import get_strategy
 
 
 def _apply_confluence_guardrail(levels: TradeLevels, market: dict) -> TradeLevels:
@@ -214,6 +216,13 @@ async def health() -> HealthResponse:
     )
 
 
+@app.get("/api/strategies", response_model=StrategiesResponse)
+async def strategies_list() -> StrategiesResponse:
+    from .strategies import list_strategies
+
+    return StrategiesResponse(strategies=list_strategies(), default="desk")
+
+
 @app.post("/api/analyze", response_model=AnalyzeResponse)
 async def analyze(req: AnalyzeRequest) -> AnalyzeResponse:
     settings = get_settings()
@@ -221,15 +230,108 @@ async def analyze(req: AnalyzeRequest) -> AnalyzeResponse:
     if not pair:
         raise HTTPException(400, "Invalid symbol")
 
+    # WL-054: all strategies + optimization
+    if (req.strategy_id or "").strip().lower() == "all":
+        from .multi_analyze import normalize_optimize_mode, run_multi_analyze
+
+        mode = normalize_optimize_mode(req.optimize_mode)
+        try:
+            multi = await run_multi_analyze(
+                pair=pair,
+                exchange=req.exchange,
+                desk_tf=req.timeframe,
+                settings=settings,
+                optimize_mode=mode,
+                custom_prompt=req.custom_prompt,
+                fill_levels=_fill_levels_from_market,
+                apply_confluence=_apply_confluence_guardrail,
+                apply_rr=_apply_reward_risk_guard,
+            )
+        except Exception as exc:  # noqa: BLE001
+            logger.exception("multi analyze failed")
+            detail = str(exc).strip() or type(exc).__name__
+            raise HTTPException(status_code=502, detail=f"AI error: {detail}") from exc
+
+        levels: TradeLevels = multi["levels"]
+        market = multi["market"] or {}
+        analysis = multi["analysis"]
+        provider = multi["provider"]
+        effective_tf = str(multi.get("timeframe") or req.timeframe)
+        final_sid = multi["strategy_id"]
+        strategy_label = multi["strategy_label"]
+        packs = multi.get("packs")
+        multi_blob = multi.get("multi_analysis")
+
+        logger.info(
+            "analyze %s %s strategy=all mode=%s -> %s (%s)",
+            pair,
+            effective_tf,
+            mode,
+            levels.bias,
+            final_sid,
+        )
+
+        # Archive directional multi plans (including local_score packs) so the
+        # detail page keeps every pack's initial result in multi_analysis_json.
+        archive_ok = (
+            levels.bias in ("Buy", "Sell")
+            and levels.entry is not None
+            and levels.stop_loss is not None
+            and levels.take_profit is not None
+        )
+        if archive_ok:
+            try:
+                from .signals import record_signal
+
+                sig = record_signal(
+                    symbol=pair,
+                    timeframe=effective_tf,
+                    levels=levels.model_dump(),
+                    market=market,
+                    strategy_id=final_sid,
+                    multi_analysis=multi_blob,
+                )
+                if sig:
+                    market = {**market, "recorded_signal_id": sig.get("id")}
+            except Exception as exc:  # noqa: BLE001
+                logger.warning("signal archive failed: %s", exc)
+
+        return AnalyzeResponse(
+            symbol=pair,
+            exchange=req.exchange.upper(),
+            timeframe=effective_tf,
+            tv_symbol=tv_symbol(pair, req.exchange),
+            strategy_id=final_sid,
+            strategy_label=strategy_label,
+            market=market,
+            levels=levels,
+            analysis=analysis,
+            provider=provider,
+            optimize_mode=mode,
+            final_strategy_id=final_sid,
+            packs=packs,
+        )
+
+    strategy = get_strategy(req.strategy_id)
     market = await fetch_coin_context_async(
-        pair, req.exchange, req.timeframe, settings
+        pair, req.exchange, req.timeframe, settings, strategy.id
     )
+    # Effective TF may come from the strategy pack when desk TF was overridden.
+    effective_tf = str(market.get("timeframe") or req.timeframe)
+    risk = strategy.risk
     prompt = build_analysis_prompt(
         pair,
         req.exchange.upper(),
-        req.timeframe,
+        effective_tf,
         context_to_prompt_block(market),
         req.custom_prompt,
+        strategy_id=strategy.id,
+        strategy_label=strategy.label,
+        strategy_rules=strategy.prompt_rules or None,
+        uses_desk_pipeline=strategy.uses_desk_pipeline,
+        stop_atr_min=risk.stop_atr_min,
+        stop_atr_max=risk.stop_atr_max,
+        min_reward_risk=risk.min_reward_risk,
     )
     try:
         text, provider = await generate_text(prompt, settings)
@@ -242,12 +344,14 @@ async def analyze(req: AnalyzeRequest) -> AnalyzeResponse:
     levels = _fill_levels_from_market(levels, market)
     # Snapshot for the signal archive before desk guards can force Neutral.
     levels_for_signal = levels.model_dump()
-    levels = _apply_confluence_guardrail(levels, market)
+    # Desk pipeline only: confluence / chop guards decide the bias (decision 0003).
+    if strategy.uses_desk_pipeline:
+        levels = _apply_confluence_guardrail(levels, market)
     levels = _apply_reward_risk_guard(levels)
     analysis = format_clear_brief(
-        pair, req.exchange.upper(), req.timeframe, levels, text
+        pair, req.exchange.upper(), effective_tf, levels, text
     )
-    if provider != "offline" and levels.bias != model_bias:
+    if provider != "offline" and levels.bias != model_bias and strategy.uses_desk_pipeline:
         # The card below is the model's own; say why the plan's bias differs from it.
         conf = market.get("confluence") if isinstance(market.get("confluence"), dict) else {}
         analysis = (
@@ -255,7 +359,14 @@ async def analyze(req: AnalyzeRequest) -> AnalyzeResponse:
             f"(confluence {float(conf.get('score') or 0):+.1f}/10 and the R:R guard decide the bias).\n\n"
             + analysis
         )
-    logger.info("analyze %s %s via %s -> %s", pair, req.timeframe, provider, levels.bias)
+    logger.info(
+        "analyze %s %s strategy=%s via %s -> %s",
+        pair,
+        effective_tf,
+        strategy.id,
+        provider,
+        levels.bias,
+    )
 
     # Archive Buy/Sell plans for later TP/SL verification. Offline plans are
     # never archived — the track record is for calls an AI actually made.
@@ -274,9 +385,10 @@ async def analyze(req: AnalyzeRequest) -> AnalyzeResponse:
                 archive["reasoning"] = f"{note} | {override}".strip(" |")
             sig = record_signal(
                 symbol=pair,
-                timeframe=req.timeframe,
+                timeframe=effective_tf,
                 levels=archive,
                 market=market,
+                strategy_id=strategy.id,
             )
             if sig:
                 market = {**market, "recorded_signal_id": sig.get("id")}
@@ -286,8 +398,10 @@ async def analyze(req: AnalyzeRequest) -> AnalyzeResponse:
     return AnalyzeResponse(
         symbol=pair,
         exchange=req.exchange.upper(),
-        timeframe=req.timeframe,
+        timeframe=effective_tf,
         tv_symbol=tv_symbol(pair, req.exchange),
+        strategy_id=strategy.id,
+        strategy_label=strategy.label,
         market=market,
         levels=levels,
         analysis=analysis,
@@ -302,16 +416,20 @@ async def chat(req: ChatRequest) -> ChatResponse:
     if not pair or not req.message.strip():
         raise HTTPException(400, "symbol and message are required")
 
+    strategy = get_strategy(req.strategy_id)
     market = await fetch_coin_context_async(
-        pair, req.exchange, req.timeframe, settings
+        pair, req.exchange, req.timeframe, settings, strategy.id
     )
+    effective_tf = str(market.get("timeframe") or req.timeframe)
     prompt = build_chat_prompt(
         pair,
         req.exchange.upper(),
-        req.timeframe,
+        effective_tf,
         context_to_prompt_block(market),
         req.message.strip(),
         req.history,
+        strategy_id=strategy.id,
+        strategy_label=strategy.label,
     )
     try:
         text, provider = await generate_text(prompt, settings)
@@ -324,6 +442,7 @@ async def chat(req: ChatRequest) -> ChatResponse:
         reply=strip_json_fence(text),
         market_snapshot=None,
         provider=provider,
+        strategy_id=strategy.id,
     )
 
 
@@ -386,13 +505,36 @@ async def journal_stats():
 
 
 @app.get("/api/signals")
-async def signals_list(limit: int = 80, symbol: str = ""):
+async def signals_list(limit: int = 80, symbol: str = "", strategy_id: str = ""):
     from .signals import list_signals, signal_stats
 
+    sid = strategy_id.strip() or None
+    rows = list_signals(limit, symbol or None, sid)
     return {
-        "signals": list_signals(limit, symbol or None),
-        "stats": signal_stats(),
+        "signals": rows,
+        "stats": signal_stats(rows) if sid or symbol else signal_stats(),
     }
+
+
+@app.get("/api/signals/dashboard")
+async def signals_dashboard():
+    """Strategy performance cards and chart series from the signal archive (WL-051)."""
+    from .dashboard import build_dashboard
+
+    return build_dashboard()
+
+
+@app.get("/api/signals/{signal_id}")
+async def signal_get(signal_id: str):
+    """Full signal including multi_analysis_json and live_review_json (WL-054)."""
+    from .signals import get_signal
+
+    if signal_id in ("dashboard", "verify", "review"):
+        raise HTTPException(404, "signal not found")
+    sig = get_signal(signal_id)
+    if not sig:
+        raise HTTPException(404, "signal not found")
+    return {"signal": sig}
 
 
 @app.post("/api/signals/verify")
@@ -405,6 +547,26 @@ async def signals_verify(symbol: str = "", only_open: bool = True, limit: int = 
         only_open=only_open,
         limit=limit,
     )
+
+
+@app.post("/api/signals/review")
+async def signals_review_all(only_open: bool = True, limit: int = 50):
+    """Live review open signals: append stance history; originals stay frozen (WL-052)."""
+    from .signals import live_review_all
+
+    return live_review_all(only_open=only_open, limit=limit)
+
+
+@app.post("/api/signals/{signal_id}/review")
+async def signal_review_one(signal_id: str):
+    from .signals import live_review_one, signal_stats
+
+    sig, review, err = live_review_one(signal_id)
+    if sig is None:
+        raise HTTPException(404, "signal not found")
+    if err in ("signal is not open", "incomplete levels"):
+        raise HTTPException(400, err)
+    return {"signal": sig, "review": review, "stats": signal_stats(), "warning": err}
 
 
 @app.post("/api/signals/{signal_id}/verify")

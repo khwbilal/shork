@@ -162,7 +162,7 @@ The provider only writes text. The backend then:
    - The opposite side of a Buy or Sell confluence is never allowed.
    - |score| ≥ 3.5 with an AI answer of Neutral → upgraded to the confluence bias.
    - Confidence is the average of the AI's figure and the confluence figure.
-4. **Checks reward:risk** (`_apply_reward_risk_guard`). A Buy or Sell becomes **Neutral** if its levels are on the wrong side of the entry (a Buy needs stop < entry < target) or if it pays less than **1:1**. The prompt also asks the model for at least 1.5:1, with the stop beyond structure but within about 2 ATR.
+4. **Checks reward:risk** (`_apply_reward_risk_guard`). A Buy or Sell becomes **Neutral** if its levels are on the wrong side of the entry (a Buy needs stop < entry < target) or if it pays less than **1:1**. The prompt asks for the strategy's `min_reward_risk` and a stop within that pack's `stop_atr_min`..`stop_atr_max` ATR (desk default about 1.5:1 and 0.75 to 2 ATR; WL-053).
 5. **Formats** the desk card (`format_clear_brief`). If steps 3 or 4 changed the model's bias, a `DESK OVERRIDE:` line is added at the top of the reply, so the text and the plan never disagree silently.
 
 The AI explains and plans; it cannot overturn the score.

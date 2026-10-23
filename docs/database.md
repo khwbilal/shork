@@ -20,7 +20,7 @@ All app data lives in one SQLite file. The engine was chosen in WL-028 ([decisio
 | Table | Migration | Item | Holds |
 |---|---|---|---|
 | `journal` | 001 | WL-028 | [Trade journal](features/journal.md) entries |
-| `signals` | 001 | WL-028 | [Signal archive](features/signals.md) |
+| `signals` | 001, 005, 006, 007 | WL-028, WL-050, WL-052, WL-054 | [Signal archive](features/signals.md); 005 `strategy_id`; 006 `live_review_json`; 007 `multi_analysis_json` |
 | `schema_version` | 001 | WL-028 | Applied migrations: version, name, applied_at |
 | `job_runs` | 002 | WL-029 | One row per [scheduled job](scheduled-jobs.md) run: job, started_at, finished_at, exit_code, message |
 | `instruments` and `instruments_fts` | 003 | WL-044 | The [instrument catalogue](features/symbol-search.md#instrument-catalogue), plus an FTS5 prefix index on symbol, base and name |

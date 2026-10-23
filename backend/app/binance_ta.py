@@ -106,7 +106,118 @@ def _fetch_klines(pair: str, interval: str, limit: int = 220) -> list[list[Any]]
     raise RuntimeError(f"Binance klines failed for {pair}: {last_err}")
 
 
-def compute_local_analysis(pair: str, timeframe: str) -> dict[str, Any]:
+def build_suggested_levels(
+    *,
+    price: float,
+    trend: str,
+    recent_high: float,
+    recent_low: float,
+    atr: float | None,
+    stop_atr_min: float = 0.75,
+    stop_atr_max: float = 2.0,
+    target_r_min: float = 2.0,
+) -> dict[str, Any]:
+    """Structural entry/stop/target with strategy ATR stop bands (WL-053).
+
+    The stop sits beyond the swing but within stop_atr_min..stop_atr_max of entry.
+    The target is the far side of the swing, pushed out to at least target_r_min R.
+    """
+    lo = min(float(stop_atr_min), float(stop_atr_max))
+    hi = max(float(stop_atr_min), float(stop_atr_max))
+    unit = atr or price * 0.01
+    swing_pad = unit * 0.35
+    entry = round(price, 6)
+    if trend == "Bullish":
+        risk = min(max(price - (recent_low - swing_pad), unit * lo), unit * hi)
+        stop = round(price - risk, 6)
+        target = round(max(recent_high + swing_pad, price + target_r_min * risk), 6)
+        bias_hint = "Buy"
+    elif trend == "Bearish":
+        risk = min(max((recent_high + swing_pad) - price, unit * lo), unit * hi)
+        stop = round(price + risk, 6)
+        target = round(min(recent_low - swing_pad, price - target_r_min * risk), 6)
+        bias_hint = "Sell"
+    else:
+        mid = (lo + hi) / 2
+        stop = round(price - unit * mid, 6)
+        target = round(price + unit * mid * max(target_r_min, 1.0), 6)
+        bias_hint = "Neutral"
+    return {
+        "bias_hint": bias_hint,
+        "entry": entry,
+        "stop_loss": stop,
+        "take_profit": target,
+        "stop_atr_min": lo,
+        "stop_atr_max": hi,
+        "target_r_min": float(target_r_min),
+    }
+
+
+def apply_strategy_risk_to_analysis(
+    analysis: dict[str, Any],
+    *,
+    stop_atr_min: float,
+    stop_atr_max: float,
+    target_r_min: float,
+) -> dict[str, Any]:
+    """Rebuild suggested_levels on an existing local/TV analysis using strategy bands."""
+    if not isinstance(analysis, dict):
+        return analysis
+    price_data = analysis.get("price_data") if isinstance(analysis.get("price_data"), dict) else {}
+    price = price_data.get("current_price")
+    atr_block = analysis.get("atr") if isinstance(analysis.get("atr"), dict) else {}
+    atr = atr_block.get("value")
+    sr = analysis.get("support_resistance") if isinstance(analysis.get("support_resistance"), dict) else {}
+    structure = analysis.get("market_structure") if isinstance(analysis.get("market_structure"), dict) else {}
+    sug = analysis.get("suggested_levels") if isinstance(analysis.get("suggested_levels"), dict) else {}
+    recent_high = sr.get("nearest_resistance") or sug.get("resistance")
+    recent_low = sr.get("nearest_support") or sug.get("support")
+    trend = structure.get("trend") or sug.get("trend") or "Neutral"
+    if not isinstance(price, (int, float)) or price <= 0:
+        return analysis
+    if not isinstance(recent_high, (int, float)) or not isinstance(recent_low, (int, float)):
+        return analysis
+    atr_val = float(atr) if isinstance(atr, (int, float)) else None
+    levels = build_suggested_levels(
+        price=float(price),
+        trend=str(trend),
+        recent_high=float(recent_high),
+        recent_low=float(recent_low),
+        atr=atr_val,
+        stop_atr_min=stop_atr_min,
+        stop_atr_max=stop_atr_max,
+        target_r_min=target_r_min,
+    )
+    merged = dict(sug)
+    merged.update(
+        {
+            "bias_hint": levels["bias_hint"],
+            "entry": levels["entry"],
+            "stop_loss": levels["stop_loss"],
+            "take_profit": levels["take_profit"],
+            "stop_atr_min": levels["stop_atr_min"],
+            "stop_atr_max": levels["stop_atr_max"],
+            "target_r_min": levels["target_r_min"],
+        }
+    )
+    # Keep structural S/R fields that were already present.
+    if "support" not in merged and recent_low is not None:
+        merged["support"] = round(float(recent_low), 6)
+    if "resistance" not in merged and recent_high is not None:
+        merged["resistance"] = round(float(recent_high), 6)
+    analysis = dict(analysis)
+    analysis["suggested_levels"] = merged
+    return analysis
+
+
+def compute_local_analysis(
+    pair: str,
+    timeframe: str,
+    *,
+    stop_atr_min: float = 0.75,
+    stop_atr_max: float = 2.0,
+    target_r_min: float = 2.0,
+) -> dict[str, Any]:
     interval = normalize_timeframe(timeframe)
     raw = _fetch_klines(pair.upper(), interval)
     opens = [float(x[1]) for x in raw]
@@ -169,29 +280,22 @@ def compute_local_analysis(pair: str, timeframe: str) -> dict[str, Any]:
         elif rsi <= 30:
             rsi_signal = "Oversold"
 
-    # Suggested structural levels (not trade advice by themselves).
-    # The stop sits beyond the swing but within 0.75–2 ATR of entry; the target is
-    # the far side of the swing, pushed out to at least 2R when price is already
-    # near it (otherwise a trend entry at the high would pay a fraction of its risk).
-    unit = atr or price * 0.01
-    swing_pad = unit * 0.35
-    entry = round(price, 6)
-    if trend == "Bullish":
-        risk = min(max(price - (recent_low - swing_pad), unit * 0.75), unit * 2.0)
-        stop = round(price - risk, 6)
-        target = round(max(recent_high + swing_pad, price + 2 * risk), 6)
-        bias_hint = "Buy"
-    elif trend == "Bearish":
-        risk = min(max((recent_high + swing_pad) - price, unit * 0.75), unit * 2.0)
-        stop = round(price + risk, 6)
-        target = round(min(recent_low - swing_pad, price - 2 * risk), 6)
-        bias_hint = "Sell"
-    else:
-        stop = round(price - unit, 6)
-        target = round(price + unit, 6)
-        bias_hint = "Neutral"
+    levels = build_suggested_levels(
+        price=price,
+        trend=trend,
+        recent_high=recent_high,
+        recent_low=recent_low,
+        atr=atr,
+        stop_atr_min=stop_atr_min,
+        stop_atr_max=stop_atr_max,
+        target_r_min=target_r_min,
+    )
+    bias_hint = levels["bias_hint"]
+    entry = levels["entry"]
+    stop = levels["stop_loss"]
+    target = levels["take_profit"]
 
-    return {
+    out: dict[str, Any] = {
         "source": "binance_local",
         "symbol": pair.upper(),
         "timeframe": interval,
@@ -246,6 +350,9 @@ def compute_local_analysis(pair: str, timeframe: str) -> dict[str, Any]:
             "entry": entry,
             "stop_loss": stop,
             "take_profit": target,
+            "stop_atr_min": levels["stop_atr_min"],
+            "stop_atr_max": levels["stop_atr_max"],
+            "target_r_min": levels["target_r_min"],
             "support": round(recent_low, 6),
             "resistance": round(recent_high, 6),
             "support_2": round(e50, 6) if e50 else None,
@@ -255,7 +362,7 @@ def compute_local_analysis(pair: str, timeframe: str) -> dict[str, Any]:
             "trend": trend,
             "trend_line": (
                 f"{trend} · EMA20={_fmt(e20)} · EMA50={_fmt(e50)} · "
-                f"swing {round(recent_low, 4)}–{round(recent_high, 4)}"
+                f"swing {round(recent_low, 4)}-{round(recent_high, 4)}"
             ),
             "ema20": round(e20, 6) if e20 else None,
             "ema50": round(e50, 6) if e50 else None,
@@ -265,6 +372,230 @@ def compute_local_analysis(pair: str, timeframe: str) -> dict[str, Any]:
             "average_20": round(sum(volumes[-20:]) / min(20, len(volumes)), 4),
         },
     }
+    out.update(_structure_overlays(highs, lows, closes, atr))
+    return out
+
+
+def _pivot_swings(
+    highs: list[float], lows: list[float], left: int = 2, right: int = 2
+) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+    """Fractal swing highs/lows (index + price)."""
+    sh: list[dict[str, Any]] = []
+    sl: list[dict[str, Any]] = []
+    n = len(highs)
+    for i in range(left, n - right):
+        h_win = highs[i - left : i + right + 1]
+        l_win = lows[i - left : i + right + 1]
+        if highs[i] == max(h_win) and h_win.count(highs[i]) == 1:
+            sh.append({"index": i, "price": round(highs[i], 6)})
+        if lows[i] == min(l_win) and l_win.count(lows[i]) == 1:
+            sl.append({"index": i, "price": round(lows[i], 6)})
+    return sh, sl
+
+
+def _equal_levels(
+    swings: list[dict[str, Any]], tolerance_pct: float = 0.15
+) -> list[dict[str, Any]]:
+    """Cluster swing prices within tolerance into equal high/low pools."""
+    if len(swings) < 2:
+        return []
+    used = [False] * len(swings)
+    clusters: list[dict[str, Any]] = []
+    for i, a in enumerate(swings):
+        if used[i]:
+            continue
+        group = [a]
+        used[i] = True
+        for j in range(i + 1, len(swings)):
+            if used[j]:
+                continue
+            b = swings[j]
+            base = a["price"] or 1.0
+            if abs(b["price"] - a["price"]) / abs(base) * 100 <= tolerance_pct:
+                group.append(b)
+                used[j] = True
+        if len(group) >= 2:
+            prices = [g["price"] for g in group]
+            clusters.append(
+                {
+                    "price": round(sum(prices) / len(prices), 6),
+                    "count": len(group),
+                    "indexes": [g["index"] for g in group],
+                }
+            )
+    return clusters[-5:]
+
+
+def _bos_choch(
+    swing_highs: list[dict[str, Any]],
+    swing_lows: list[dict[str, Any]],
+    closes: list[float],
+) -> dict[str, Any]:
+    """Simple BOS / CHoCH from last two swings of each type vs last close."""
+    if not closes:
+        return {"bos": None, "choch": None, "bias": "Neutral", "note": "no closes"}
+    price = closes[-1]
+    last_sh = swing_highs[-1]["price"] if swing_highs else None
+    prev_sh = swing_highs[-2]["price"] if len(swing_highs) >= 2 else None
+    last_sl = swing_lows[-1]["price"] if swing_lows else None
+    prev_sl = swing_lows[-2]["price"] if len(swing_lows) >= 2 else None
+
+    bos: str | None = None
+    choch: str | None = None
+    bias = "Neutral"
+
+    # Prior swing trend from last two lows/highs
+    prior_up = prev_sl is not None and last_sl is not None and last_sl > prev_sl
+    prior_down = prev_sh is not None and last_sh is not None and last_sh < prev_sh
+
+    if last_sh is not None and price > last_sh:
+        bos = "bullish"
+        bias = "Bullish"
+        if prior_down:
+            choch = "bullish"
+    elif last_sl is not None and price < last_sl:
+        bos = "bearish"
+        bias = "Bearish"
+        if prior_up:
+            choch = "bearish"
+    elif prior_up:
+        bias = "Bullish"
+    elif prior_down:
+        bias = "Bearish"
+
+    note_parts = []
+    if bos:
+        note_parts.append(f"BOS {bos}")
+    if choch:
+        note_parts.append(f"CHoCH {choch}")
+    if last_sh is not None:
+        note_parts.append(f"last SH {last_sh}")
+    if last_sl is not None:
+        note_parts.append(f"last SL {last_sl}")
+    return {
+        "bos": bos,
+        "choch": choch,
+        "bias": bias,
+        "last_swing_high": last_sh,
+        "last_swing_low": last_sl,
+        "note": "; ".join(note_parts) if note_parts else "no BOS/CHoCH",
+    }
+
+
+def _fibonacci(
+    swing_highs: list[dict[str, Any]],
+    swing_lows: list[dict[str, Any]],
+    closes: list[float],
+) -> dict[str, Any]:
+    """Fib retracement from the latest impulse swing that contains price."""
+    if not closes or (not swing_highs and not swing_lows):
+        return {"available": False}
+    price = closes[-1]
+    # Prefer the most recent swing high and swing low by index
+    candidates: list[tuple[int, int, float, float]] = []
+    for sh in swing_highs[-6:]:
+        for sl in swing_lows[-6:]:
+            if sh["index"] == sl["index"]:
+                continue
+            hi, lo = sh["price"], sl["price"]
+            if hi <= lo:
+                continue
+            # Impulse direction: low then high = bullish leg; high then low = bearish
+            if sl["index"] < sh["index"]:
+                candidates.append((sl["index"], sh["index"], lo, hi))
+            else:
+                candidates.append((sh["index"], sl["index"], lo, hi))
+    if not candidates:
+        return {"available": False}
+    # Most recent completed leg
+    candidates.sort(key=lambda c: c[1], reverse=True)
+    _i0, _i1, lo, hi = candidates[0]
+    span = hi - lo
+    if span <= 0:
+        return {"available": False}
+    levels = {
+        "0.0": round(hi, 6),
+        "0.236": round(hi - 0.236 * span, 6),
+        "0.382": round(hi - 0.382 * span, 6),
+        "0.5": round(hi - 0.5 * span, 6),
+        "0.618": round(hi - 0.618 * span, 6),
+        "0.786": round(hi - 0.786 * span, 6),
+        "1.0": round(lo, 6),
+    }
+    # For bearish legs (high then low), flip so 0 is the low
+    if candidates[0][0] > 0 and swing_highs and swing_lows:
+        last_leg_bullish = any(
+            sl["index"] < sh["index"]
+            for sh in swing_highs[-1:]
+            for sl in swing_lows[-1:]
+        )
+        if not last_leg_bullish and swing_highs[-1]["index"] > swing_lows[-1]["index"]:
+            levels = {
+                "0.0": round(lo, 6),
+                "0.236": round(lo + 0.236 * span, 6),
+                "0.382": round(lo + 0.382 * span, 6),
+                "0.5": round(lo + 0.5 * span, 6),
+                "0.618": round(lo + 0.618 * span, 6),
+                "0.786": round(lo + 0.786 * span, 6),
+                "1.0": round(hi, 6),
+            }
+    nearest = min(levels.items(), key=lambda kv: abs(kv[1] - price))
+    return {
+        "available": True,
+        "swing_high": hi,
+        "swing_low": lo,
+        "levels": levels,
+        "nearest": {"ratio": nearest[0], "price": nearest[1]},
+        "price": round(price, 6),
+    }
+
+
+def _structure_overlays(
+    highs: list[float],
+    lows: list[float],
+    closes: list[float],
+    atr: float | None,
+) -> dict[str, Any]:
+    sh, sl = _pivot_swings(highs, lows)
+    eq_h = _equal_levels(sh)
+    eq_l = _equal_levels(sl)
+    structure = _bos_choch(sh, sl, closes)
+    fib = _fibonacci(sh, sl, closes)
+    # Squeeze summary from bollinger bandwidth percentile already in _bollinger;
+    # expose a dedicated block for strategy packs.
+    bb = _bollinger(closes)
+    squeeze = {
+        "active": bool(bb.get("squeeze")),
+        "bandwidth": bb.get("bandwidth"),
+        "percent_b": bb.get("percent_b"),
+        "position": bb.get("position"),
+        "atr": round(atr, 6) if atr else None,
+    }
+    return {
+        "swings": {
+            "highs": sh[-8:],
+            "lows": sl[-8:],
+            "recent_high": sh[-1]["price"] if sh else None,
+            "recent_low": sl[-1]["price"] if sl else None,
+        },
+        "equal_levels": {"equal_highs": eq_h, "equal_lows": eq_l},
+        "structure": structure,
+        "fibonacci": fib,
+        "squeeze": squeeze,
+    }
+
+
+def pick_indicator_blocks(analysis: dict[str, Any], keys: tuple[str, ...] | list[str]) -> dict[str, Any]:
+    """Subset of a local analysis for a strategy pack."""
+    out: dict[str, Any] = {}
+    for key in keys:
+        if key in analysis and analysis[key] is not None:
+            out[key] = analysis[key]
+    # Always keep price and suggested levels for R:R.
+    for keep in ("price_data", "suggested_levels", "support_resistance", "atr"):
+        if keep in analysis and keep not in out:
+            out[keep] = analysis[keep]
+    return out
 
 
 def _bollinger(closes: list[float], period: int = 20, mult: float = 2.0) -> dict[str, Any]:

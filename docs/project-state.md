@@ -28,9 +28,10 @@ A local crypto analysis desk: a TradingView chart plus an AI analyst. The FastAP
 
 - **Snapshot truncation (the most impactful fix):** `market.py:context_to_prompt_block` used to pretty-print about 6.5k characters and cut at 5k, which **dropped `confluence` and `setup`**, so the AI never saw the score it was meant to respect. It now uses compact JSON, drops empty values, puts the decision fields first, caps at 8k, and drops low-value sections whole. Typical size is now about 4.5k. Verified: Claude now quotes the score ("SCORE: 8.6/10").
 - **Reward:risk:**
-  - `binance_ta.py` local levels: the stop is capped at 0.75 to 2 ATR and the target is at least 2R (it was 0.1 to 0.3R).
+  - `binance_ta.py` local levels: stop ATR bands and min target R come from each strategy's `RiskProfile` (desk default 0.75 to 2 ATR, 2R). Live-review stance bands are strategy-owned too (WL-053).
   - `main.py:_apply_reward_risk_guard`: a Buy/Sell with levels on the wrong side of entry, or below 1:1, becomes Neutral.
   - The prompt asks for at least 1.5R.
+  - **All strategies** (WL-054): Desk can run every pack with `optimize_mode` `local_score` / `majority_vote` / `ai_ensemble`; packs land in `multi_analysis_json`; detail at `#/signals/{id}`; live review may append revised SL/TP without changing the original plan.
 - **`DESK OVERRIDE:` line:** added to the reply when the guardrails change the model's bias, so the text and the plan never disagree silently.
 - **Offline plans are no longer archived as signals.** Only real AI calls go into the track record.
 - **Symbol search:** `<q>USDT` ranks first, the selected exchange's pairs come before other venues, and the bogus `ALL:` pseudo-exchange from the TradingView coin list is dropped.
